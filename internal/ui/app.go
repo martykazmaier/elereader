@@ -14,18 +14,17 @@ import (
 )
 
 const (
-	listY       = 3
-	listRows    = 12
-	previewY    = 16
-	previewRows = 6
-	bodyY       = 6
-	bodyRows    = 16
-	statusY     = 23
-	modeList    = 1
-	modeRead    = 2
-	modeReply   = 3
-	modeProto   = 4
-	modeAsk     = 5
+	listY     = 3
+	listRows  = 19
+	bodyY     = 6
+	bodyRows  = 16
+	statusY   = 23
+	modeList  = 1
+	modeRead  = 2
+	modeReply = 3
+	modeProto = 4
+	modeAsk   = 5
+	modeUpAsk = 6
 )
 
 // Area is the one conference EleBBS already selected.
@@ -57,7 +56,6 @@ type App struct {
 	top        int
 	mode       int
 	err        string
-	preview    []string
 	body       []string
 	bodyTop    int
 	quit       bool
@@ -80,9 +78,17 @@ type App struct {
 	protoTop   int
 	protoFiles []string
 	protoUp    bool
+	protoMsg   bool
 	uploadDir  string
 	release    func() func()
+	settle     time.Time
+	redraw     chan struct{}
 }
+
+// Terminals keep their transfer window up for a moment after the protocol
+// program exits, so a paint sent right away can be lost. The screen is sent
+// again after these delays, and protocol leftovers are dropped until the first.
+var redrawAfter = []time.Duration{time.Second, 3 * time.Second}
 
 // setBlocking asks the caller port to wait inside a transfer program.
 // Ports that do not support it keep their normal reads.
@@ -114,6 +120,22 @@ func (a *App) lendCaller() func() {
 		if resume != nil {
 			resume()
 		}
+		a.redrawSoon()
+	}
+}
+
+func (a *App) redrawSoon() {
+	if a.redraw == nil || len(redrawAfter) == 0 {
+		return
+	}
+	a.settle = time.Now().Add(redrawAfter[0])
+	for _, d := range redrawAfter {
+		time.AfterFunc(d, func() {
+			select {
+			case a.redraw <- struct{}{}:
+			default:
+			}
+		})
 	}
 }
 
@@ -155,6 +177,7 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 
 	keys := make(chan byte, 512)
 	gone := make(chan struct{})
+	a.redraw = make(chan struct{}, 1)
 	var mu sync.Mutex
 	cond := sync.NewCond(&mu)
 	paused := false
@@ -224,7 +247,14 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 			if a.mode != modeRead {
 				a.paintStatus()
 			}
+		case <-a.redraw:
+			pending = nil
+			stopTimer(esc)
+			a.paintAll()
 		case b := <-keys:
+			if time.Now().Before(a.settle) {
+				continue
+			}
 			pending = append(pending, b)
 			evs, reply, rest := Parse(pending)
 			pending = append([]byte(nil), rest...)
@@ -274,6 +304,8 @@ func (a *App) on(ev Event) bool {
 		return a.onProto(ev)
 	case modeAsk:
 		return a.onAsk(ev)
+	case modeUpAsk:
+		return a.onUpAsk(ev)
 	default:
 		return a.onList(ev)
 	}
@@ -371,7 +403,6 @@ func (a *App) onRead(ev Event) bool {
 
 func (a *App) backToList() {
 	a.mode = modeList
-	a.loadPreview()
 	a.paintAll()
 }
 
@@ -403,15 +434,12 @@ func (a *App) killMessage() {
 	}
 	if len(a.msgs) == 0 {
 		a.mode = modeList
-		a.preview = nil
 		a.body = nil
 		a.paintAll()
 		return
 	}
 	if a.mode == modeRead {
 		a.loadBody()
-	} else {
-		a.loadPreview()
 	}
 	a.paintAll()
 }
@@ -468,10 +496,6 @@ func (a *App) move(dest int) {
 		a.barOff(oldSel)
 		a.barOn(a.sel)
 	}
-	if a.mode == modeList {
-		a.loadPreview()
-		a.paintPreview()
-	}
 	a.paintStatus()
 }
 
@@ -513,7 +537,6 @@ func (a *App) openArea(i int) {
 		a.base = nil
 	}
 	a.msgs = nil
-	a.preview = nil
 	a.err = ""
 	a.area = i
 	if i < 0 || i >= len(a.areas) {
@@ -551,7 +574,6 @@ func (a *App) openArea(i int) {
 	if a.sel >= listRows {
 		a.top = a.sel - listRows + 1
 	}
-	a.loadPreview()
 }
 
 func (a *App) forUser(h jam.Header) bool {
@@ -579,20 +601,27 @@ func (a *App) visible(msgs []jam.Header) []jam.Header {
 	return out
 }
 
+// mark is * for unread. + is someone else's private mail, which only a
+// sysop sees.
 func (a *App) mark(h jam.Header) string {
 	if a.unread(h) {
 		return "*"
 	}
-	if h.Private() {
+	if h.Private() && !isAll(h.To) && !a.forUser(h) {
 		return "+"
 	}
 	return " "
 }
 
-// unread is the bright "new" mark. Mail to this user that has the received
-// bit was read, even when the lastread high-water mark is behind it.
+// unread is the bright "new" mark. Private mail is new only to its
+// recipient, until the received bit is set. Public messages use the
+// lastread high-water mark.
 func (a *App) unread(h jam.Header) bool {
-	if h.Read() && (eqName(h.To, a.user.RealName) || eqName(h.To, a.user.Alias)) {
+	toMe := eqName(h.To, a.user.RealName) || eqName(h.To, a.user.Alias)
+	if h.Private() && !isAll(h.To) {
+		return toMe && !h.Read()
+	}
+	if toMe && h.Read() {
 		return false
 	}
 	return h.Number > a.high
@@ -613,31 +642,6 @@ func (a *App) listSubject(h jam.Header) string {
 		return strings.Join(names, ", ")
 	}
 	return h.Subject
-}
-
-func (a *App) loadPreview() {
-	a.preview = nil
-	if a.sel < 0 || a.sel >= len(a.msgs) || a.base == nil {
-		return
-	}
-	h := a.msgs[a.sel]
-	if !a.canSee(h) {
-		a.preview = []string{"This message is private."}
-		return
-	}
-	raw, err := a.base.Text(h)
-	if err != nil {
-		a.preview = []string{err.Error()}
-		return
-	}
-	lines := bodyLines(raw, ansiWidth)
-	for len(lines) > 0 && strings.TrimSpace(string(stripSGR([]byte(lines[0])))) == "" {
-		lines = lines[1:]
-	}
-	if len(lines) > previewRows {
-		lines = lines[:previewRows]
-	}
-	a.preview = lines
 }
 
 func (a *App) loadBody() {
@@ -677,6 +681,9 @@ func (a *App) paintAll() {
 	case modeAsk:
 		a.paintAsk()
 		return
+	case modeUpAsk:
+		a.paintUpAsk()
+		return
 	}
 	title := "Elereader"
 	if a.area >= 0 && a.area < len(a.areas) {
@@ -685,8 +692,6 @@ func (a *App) paintAll() {
 	a.scr.rule(1, chTL, chTR, title)
 	a.scr.content(2, attrHead, columnHead())
 	a.paintChoices()
-	a.scr.rule(15, chJL, chJR, "Preview")
-	a.paintPreview()
 	a.scr.rule(22, chJL, chJR, a.note)
 	a.paintStatus()
 	a.scr.rule(24, chBL, chBR, "Up/Dn  Enter Read  P Post  R Reply  K Kill  Q Quit")
@@ -721,10 +726,18 @@ func (a *App) paintRead() {
 }
 
 func (a *App) paintChoices() {
+	var errLines []string
+	if a.err != "" && a.count() == 0 {
+		errLines = wrapVisible([]byte(a.err), contentWidth)
+	}
 	for row := 0; row < listRows; row++ {
 		i := a.top + row
 		if i < 0 || i >= a.count() {
-			a.scr.content(listY+row, attrNorm, blank(contentWidth))
+			text := blank(contentWidth)
+			if row < len(errLines) {
+				text = padVisible(errLines[row], contentWidth)
+			}
+			a.scr.content(listY+row, attrNorm, text)
 			continue
 		}
 		a.paintIndex(i, i == a.sel)
@@ -748,20 +761,6 @@ func (a *App) paintIndex(i int, selected bool) {
 	}
 	h := a.msgs[i]
 	a.scr.content(y, color, msgLine(h, a.mark(h), a.listSubject(h)))
-}
-
-func (a *App) paintPreview() {
-	lines := a.preview
-	if a.err != "" && len(a.msgs) == 0 {
-		lines = wrapVisible([]byte(a.err), contentWidth)
-	}
-	for i := 0; i < previewRows; i++ {
-		text := blank(contentWidth)
-		if i < len(lines) {
-			text = padVisible(lines[i], contentWidth)
-		}
-		a.scr.content(previewY+i, attrNorm, text)
-	}
 }
 
 func (a *App) paintBody() {

@@ -75,7 +75,7 @@ func (a *App) onReply(ev Event) bool {
 		a.moveReplyField(1)
 	case KindEnter:
 		if a.replyFld == a.lastReplyField() {
-			a.writeMessage()
+			a.askUpload()
 		} else {
 			a.replyEdit = true
 			a.replyHold = a.fieldValue(a.replyFld)
@@ -111,7 +111,7 @@ func (a *App) onEdit(ev Event) bool {
 			return false
 		}
 		if a.replyFld == a.lastReplyField() {
-			a.writeMessage()
+			a.askUpload()
 			return false
 		}
 		a.advanceReplyField()
@@ -136,6 +136,51 @@ func (a *App) onEdit(ev Event) bool {
 		if ev.Ch >= 32 && len(a.replyBuf) < 70 {
 			a.replyBuf += string(ev.Ch)
 			a.paintReply()
+		}
+	}
+	return false
+}
+
+func (a *App) askUpload() {
+	a.replyEdit = false
+	if msg := validateReply(a.kind(), a.replyTo, a.replySub, a.replyAddr); msg != "" {
+		a.focusInvalid(msg)
+		return
+	}
+	a.mode = modeUpAsk
+	a.paintAll()
+}
+
+func (a *App) paintUpAsk() {
+	title := "Reply"
+	if a.postNew {
+		title = "Post"
+	}
+	a.scr.rule(1, chTL, chTR, title)
+	a.scr.content(2, attrNorm, blank(contentWidth))
+	a.scr.content(3, attrNorm, fit(" Upload a message?", contentWidth))
+	for y := 4; y <= 22; y++ {
+		a.scr.content(y, attrNorm, blank(contentWidth))
+	}
+	a.scr.content(statusY, attrNorm, a.statusText())
+	a.scr.rule(24, chBL, chBR, "Y Yes  N No  Esc Back")
+}
+
+func (a *App) onUpAsk(ev Event) bool {
+	switch ev.Kind {
+	case KindEsc:
+		a.mode = modeReply
+		a.paintAll()
+	case KindEnter:
+		a.writeMessage()
+	case KindByte:
+		switch ev.Ch {
+		case 'y', 'Y':
+			a.beginMsgUpload()
+		case 'n', 'N':
+			a.writeMessage()
+		case 'q', 'Q':
+			return true
 		}
 	}
 	return false
@@ -568,9 +613,6 @@ func (a *App) leaveComposer() {
 	a.mode = a.replyFrom
 	if a.mode != modeList && a.mode != modeRead {
 		a.mode = modeList
-	}
-	if a.mode == modeList {
-		a.loadPreview()
 	}
 	a.paintAll()
 }

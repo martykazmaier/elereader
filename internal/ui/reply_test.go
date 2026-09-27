@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"elereader/internal/door32"
 	"elereader/internal/jam"
 )
 
@@ -51,6 +54,39 @@ func TestEditorCommand(t *testing.T) {
 	}
 	if _, err := editorArgs(" ", "1", "0", "1440", "60"); err == nil {
 		t.Fatal("empty editor was accepted")
+	}
+}
+
+func TestSubjectAsksUpload(t *testing.T) {
+	var buf bytes.Buffer
+	a := &App{
+		scr:       &Screen{w: &buf},
+		user:      door32.Drop{Emulation: door32.EmuANSI, Started: time.Now()},
+		areas:     []Area{{Name: "General"}},
+		mode:      modeReply,
+		replyTo:   "All",
+		replyFld:  1,
+		replyEdit: true,
+		replyBuf:  "Hello",
+	}
+	a.onReply(Event{Kind: KindEnter})
+	if a.mode != modeUpAsk {
+		t.Fatalf("mode %d", a.mode)
+	}
+	a.onUpAsk(Event{Kind: KindEsc})
+	if a.mode != modeReply {
+		t.Fatalf("Esc went to mode %d", a.mode)
+	}
+}
+
+func TestUploadedText(t *testing.T) {
+	dir := t.TempDir()
+	small := filepath.Join(dir, "a.txt")
+	big := filepath.Join(dir, "b.txt")
+	_ = os.WriteFile(small, []byte("hi"), 0644)
+	_ = os.WriteFile(big, []byte("Hello there\r\n\x1a\x1a\x1a"), 0644)
+	if got := string(uploadedText([]string{small, big})); got != "Hello there\r\n" {
+		t.Fatalf("%q", got)
 	}
 }
 

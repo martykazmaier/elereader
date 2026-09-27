@@ -71,6 +71,17 @@ func TestUnreadMark(t *testing.T) {
 	if !a.unread(jam.Header{Number: 4, To: "All"}) {
 		t.Fatal("past the high water is new")
 	}
+	if !a.unread(jam.Header{Number: 2, To: "Martin", Attr: 0x4}) {
+		t.Fatal("private mail to me is new until received, even below the high water")
+	}
+	other := jam.Header{Number: 9, From: "Sue", To: "Bob", Attr: 0x4}
+	if a.unread(other) || a.mark(other) != "+" {
+		t.Fatalf("someone else's private mail: unread %v mark %q", a.unread(other), a.mark(other))
+	}
+	mine := jam.Header{Number: 9, From: "Martin", To: "Bob", Attr: 0x4}
+	if a.unread(mine) || a.mark(mine) != " " {
+		t.Fatalf("mail I sent: unread %v mark %q", a.unread(mine), a.mark(mine))
+	}
 }
 
 func TestPrivateVisibility(t *testing.T) {

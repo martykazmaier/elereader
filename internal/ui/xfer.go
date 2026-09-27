@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -95,6 +96,96 @@ func (a *App) beginUpload() {
 	a.paintAll()
 }
 
+func (a *App) beginMsgUpload() {
+	dir := filepath.Join(a.workDir(), "msgup")
+	_ = os.RemoveAll(dir)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		a.msgUploadFailed(err.Error())
+		return
+	}
+	prots, err := a.uploadProtocols()
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		a.msgUploadFailed(err.Error())
+		return
+	}
+	a.uploadDir = dir
+	a.protos = prots
+	a.protoSel = 0
+	a.protoTop = 0
+	a.protoFiles = nil
+	a.protoUp = true
+	a.protoMsg = true
+	a.mode = modeProto
+	a.paintAll()
+}
+
+func (a *App) runMsgUpload(p Protocol, env xferEnv) {
+	dir := a.uploadDir
+	if err := writeUpControl(p, dir, env); err != nil {
+		a.endMsgUpload()
+		a.msgUploadFailed(err.Error())
+		return
+	}
+	line := expandUpload(p.UpCmd, dir, env)
+	a.eraseProtocolFiles(p, env)
+	back := a.lendCaller()
+	defer back()
+	err := runExternal(line, a.workDir(), a.user.Handle, false)
+	a.pullLogged(p, env)
+	a.eraseProtocolFiles(p, env)
+	setBlocking(a.port, true)
+	body := uploadedText(dirFiles(dir))
+	a.endMsgUpload()
+	if len(strings.TrimSpace(string(body))) == 0 {
+		if err != nil {
+			a.msgUploadFailed(p.Name + " stopped: " + err.Error())
+		} else {
+			a.msgUploadFailed("No message received.")
+		}
+		return
+	}
+	path := filepath.Join(a.workDir(), "msgtmp")
+	if err := os.WriteFile(path, body, 0644); err != nil {
+		a.msgUploadFailed(err.Error())
+		return
+	}
+	a.editPath = path
+	a.mode = modeAsk
+	a.paintAll()
+}
+
+func (a *App) endMsgUpload() {
+	if a.uploadDir != "" {
+		_ = os.RemoveAll(a.uploadDir)
+	}
+	a.uploadDir = ""
+	a.protoUp = false
+	a.protoMsg = false
+}
+
+func (a *App) msgUploadFailed(msg string) {
+	a.replyNote = msg
+	a.mode = modeReply
+	a.paintAll()
+}
+
+// uploadedText is the largest received file. XMODEM pads the last block with
+// Ctrl-Z, which is not message text.
+func uploadedText(files []string) []byte {
+	var best []byte
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err == nil && len(b) > len(best) {
+			best = b
+		}
+	}
+	if i := bytes.IndexByte(best, 0x1A); i >= 0 {
+		best = best[:i]
+	}
+	return best
+}
+
 func (a *App) downloadProtocols() ([]Protocol, error) {
 	return a.protocolsWith(false)
 }
@@ -165,6 +256,12 @@ func (a *App) onProto(ev Event) bool {
 	case KindEnter:
 		a.runProto(a.protoSel)
 	case KindEsc:
+		if a.protoMsg {
+			a.endMsgUpload()
+			a.mode = modeUpAsk
+			a.paintAll()
+			return false
+		}
 		if a.protoUp {
 			a.abandonUpload()
 			a.sendReply()
@@ -216,7 +313,9 @@ func (a *App) paintProto() {
 	}
 	a.scr.rule(1, chTL, chTR, title)
 	label := ""
-	if a.protoUp {
+	if a.protoMsg {
+		label = " Upload your message text"
+	} else if a.protoUp {
 		label = " Upload into " + a.uploadDir
 	} else {
 		names := make([]string, 0, len(a.protoFiles))
@@ -243,10 +342,7 @@ func (a *App) paintProto() {
 		}
 		a.scr.content(listY+row, color, text)
 	}
-	a.scr.rule(15, chJL, chJR, "")
-	for y := 16; y <= 22; y++ {
-		a.scr.content(y, attrNorm, blank(contentWidth))
-	}
+	a.scr.content(22, attrNorm, blank(contentWidth))
 	a.scr.content(statusY, attrNorm, a.statusText())
 	a.scr.rule(24, chBL, chBR, "Up/Dn  Enter or key  Esc Back")
 }
@@ -257,6 +353,10 @@ func (a *App) runProto(i int) {
 	}
 	p := a.protos[i]
 	env := a.xferEnv()
+	if a.protoMsg {
+		a.runMsgUpload(p, env)
+		return
+	}
 	if a.protoUp {
 		a.runUpload(p, env)
 		return
