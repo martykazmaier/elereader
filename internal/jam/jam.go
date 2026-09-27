@@ -31,6 +31,8 @@ const (
 	subDAddr    = 1
 	subSender   = 2
 	subReceiver = 3
+	subMsgID    = 4
+	subReplyID  = 5
 	subSubject  = 6
 	subPID      = 7
 	subFile     = 9
@@ -86,6 +88,7 @@ type Header struct {
 	Subject string
 	Origin  string
 	Dest    string
+	MsgID   string
 	When    time.Time
 	Attr    uint32
 	Offset  uint32
@@ -306,6 +309,8 @@ func parseSubs(buf []byte, h *Header) {
 			h.Origin = val
 		case subDAddr:
 			h.Dest = val
+		case subMsgID:
+			h.MsgID = val
 		case subSender:
 			h.From = val
 		case subReceiver:
@@ -334,6 +339,24 @@ func indexByte(b []byte, c byte) int {
 		}
 	}
 	return -1
+}
+
+// MessageID is the MSGID from the header, or from a ^AMSGID kludge in the
+// text for bases that keep kludges there.
+func (b *Base) MessageID(h Header) string {
+	if h.MsgID != "" {
+		return h.MsgID
+	}
+	raw, err := b.Text(h)
+	if err != nil {
+		return ""
+	}
+	for _, ln := range strings.FieldsFunc(string(raw), func(r rune) bool { return r == '\r' || r == '\n' }) {
+		if strings.HasPrefix(ln, "\x01MSGID:") {
+			return strings.TrimSpace(ln[len("\x01MSGID:"):])
+		}
+	}
+	return ""
 }
 
 // Text loads the message body. Missing text yields an empty slice.

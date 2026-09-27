@@ -1,6 +1,7 @@
 package jam
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -55,6 +56,49 @@ func TestPostReplyAndFile(t *testing.T) {
 	reply1 := text[1024+28 : 1024+32]
 	if reply1[0] != 4 {
 		t.Fatalf("reply link %v", reply1)
+	}
+}
+
+func TestPostMsgID(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "echo")
+	writeFixture(t, path)
+	b, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if _, err := b.Post(Outgoing{
+		From: "Martin", To: "All", Subject: "Re: Test", Text: []byte("Hi\r"),
+		Kind: AreaEcho, MsgID: "21:2/148 6ab8d746", ReplyID: "21:1/101 7b71e2df",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, _ := b.List()
+	got := msgs[len(msgs)-1]
+	if got.MsgID != "21:2/148 6ab8d746" || b.MessageID(got) != got.MsgID {
+		t.Fatalf("msgid %q", got.MsgID)
+	}
+	var fixed [fixedLen]byte
+	if _, err := b.jhr.ReadAt(fixed[:], int64(got.HdrAt)); err != nil {
+		t.Fatal(err)
+	}
+	if c := binary.LittleEndian.Uint32(fixed[16:]); c != CRC32String("21:2/148 6ab8d746") {
+		t.Fatalf("msgid crc %08x", c)
+	}
+	if c := binary.LittleEndian.Uint32(fixed[20:]); c != CRC32String("21:1/101 7b71e2df") {
+		t.Fatalf("reply crc %08x", c)
+	}
+
+	if _, err := b.Post(Outgoing{
+		From: "Sysop", To: "All", Subject: "Kludge", Kind: AreaEcho,
+		Text: []byte("\x01PID: EleBBS\r\x01MSGID: 21:2/148 00000001\rHello\r"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, _ = b.List()
+	if id := b.MessageID(msgs[len(msgs)-1]); id != "21:2/148 00000001" {
+		t.Fatalf("text msgid %q", id)
 	}
 }
 

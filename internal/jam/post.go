@@ -20,6 +20,8 @@ type Outgoing struct {
 	ToAddr   string
 	Files    []string
 	Attach   bool
+	MsgID    string
+	ReplyID  string
 }
 
 // Post appends a message. The returned number is the new JAM message number.
@@ -62,6 +64,15 @@ func (b *Base) Post(msg Outgoing) (uint32, error) {
 	if msg.ToAddr != "" {
 		subs = append(subs, field(subDAddr, clip(msg.ToAddr, 100))...)
 	}
+	idCRC, replyCRC := uint32(0xFFFFFFFF), uint32(0xFFFFFFFF)
+	if id := clip(msg.MsgID, 100); id != "" {
+		subs = append(subs, field(subMsgID, id)...)
+		idCRC = CRC32String(id)
+	}
+	if id := clip(msg.ReplyID, 100); id != "" {
+		subs = append(subs, field(subReplyID, id)...)
+		replyCRC = CRC32String(id)
+	}
 	for _, name := range msg.Files {
 		if name != "" {
 			subs = append(subs, field(subFile, clip(name, 100))...)
@@ -78,7 +89,7 @@ func (b *Base) Post(msg Outgoing) (uint32, error) {
 	}
 	raw := make([]byte, fixedLen+len(subs))
 	attr := attrs(msg.Kind, msg.Private, len(msg.Files) > 0 || msg.Attach)
-	putFixed(raw, uint32(len(subs)), uint32(time.Now().Unix()), number, attr, textAt, uint32(len(msg.Text)), msg.ReplyTo)
+	putFixed(raw, uint32(len(subs)), uint32(time.Now().Unix()), number, attr, textAt, uint32(len(msg.Text)), msg.ReplyTo, idCRC, replyCRC)
 	copy(raw[fixedLen:], subs)
 	if _, err := b.jhr.WriteAt(raw, hdrAt); err != nil {
 		return 0, err
@@ -273,12 +284,12 @@ func attrs(kind AreaKind, private, file bool) uint32 {
 	return attr
 }
 
-func putFixed(h []byte, subLen, date, number, attr, textAt, textLen, replyTo uint32) {
+func putFixed(h []byte, subLen, date, number, attr, textAt, textLen, replyTo, idCRC, replyCRC uint32) {
 	binary.LittleEndian.PutUint32(h[0:], sigJAM)
 	binary.LittleEndian.PutUint16(h[4:], 1)
 	binary.LittleEndian.PutUint32(h[8:], subLen)
-	binary.LittleEndian.PutUint32(h[16:], 0xFFFFFFFF)
-	binary.LittleEndian.PutUint32(h[20:], 0xFFFFFFFF)
+	binary.LittleEndian.PutUint32(h[16:], idCRC)
+	binary.LittleEndian.PutUint32(h[20:], replyCRC)
 	binary.LittleEndian.PutUint32(h[24:], replyTo)
 	binary.LittleEndian.PutUint32(h[36:], date)
 	binary.LittleEndian.PutUint32(h[48:], number)

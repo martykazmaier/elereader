@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"elereader/internal/jam"
 )
@@ -326,10 +327,12 @@ func (a *App) sendReply() {
 	var orig jam.Header
 	replyNum := uint32(0)
 	toAddr := ""
+	replyID := ""
 	if !a.postNew && a.sel >= 0 && a.sel < len(a.msgs) {
 		orig = a.msgs[a.sel]
 		replyNum = orig.Number
 		toAddr = orig.Origin
+		replyID = a.base.MessageID(orig)
 	}
 	kind := a.kind()
 	if kind == jam.AreaNetmail {
@@ -347,6 +350,8 @@ func (a *App) sendReply() {
 		ToAddr:   toAddr,
 		Files:    names,
 		Attach:   fileAttach,
+		MsgID:    newMsgID(a.current().Origin, a.user.Node, time.Now()),
+		ReplyID:  replyID,
 	})
 	if err != nil {
 		a.replyNote = err.Error()
@@ -718,6 +723,18 @@ func validateReply(kind jam.AreaKind, to, subject, addr string) string {
 		}
 	}
 	return ""
+}
+
+// newMsgID is the FTS-0009 MSGID. The serial must not repeat for this
+// address within three years, including posts from other nodes in the
+// same second, so the node number is folded into the top bits.
+func newMsgID(addr string, node int, now time.Time) string {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return ""
+	}
+	serial := uint32(now.Unix()) ^ (uint32(node)&0x1F)<<27
+	return fmt.Sprintf("%s %08x", addr, serial)
 }
 
 func netmailAddr(s string) bool {

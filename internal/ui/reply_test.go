@@ -79,6 +79,19 @@ func TestSubjectAsksUpload(t *testing.T) {
 	}
 }
 
+func TestNewMsgID(t *testing.T) {
+	now := time.Unix(0x6ab8d746, 0)
+	if got := newMsgID("21:2/148", 0, now); got != "21:2/148 6ab8d746" {
+		t.Fatal(got)
+	}
+	if newMsgID("21:2/148", 1, now) == newMsgID("21:2/148", 2, now) {
+		t.Fatal("nodes share a serial")
+	}
+	if got := newMsgID(" ", 1, now); got != "" {
+		t.Fatal(got)
+	}
+}
+
 func TestUploadedText(t *testing.T) {
 	dir := t.TempDir()
 	small := filepath.Join(dir, "a.txt")
