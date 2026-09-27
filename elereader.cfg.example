@@ -1,0 +1,12 @@
+# The working directory is the node directory. MESSAGES.RA is in %ELEBBS% or %RA%.
+# Optional fallback when EXITINFO.BBS is not in the node directory.
+# EleBBS selects the conference. This door reads that one area.
+# A trailing word sets the area type: local, echo, netmail, or email.
+# area General=C:\elebbs\msgs\general echo
+#
+# editor= is ExternalEdCmd when CONFIG.RA does not set one.
+# The editor is started with the COM port, baud, minutes left, and timeout.
+# The editor reads msginf (from, to, subject, number, area, private)
+# and saves the finished text as msgtmp in the node directory.
+# editor=C:\elebbs\editor.exe
+# download=C:\elebbs\dsz.exe sz %F

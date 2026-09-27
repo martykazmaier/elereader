@@ -1,0 +1,312 @@
+// Package ra reads the RemoteAccess files EleBBS still writes.
+// Words are 16-bit and records are packed, matching the RA 2.50 file format.
+package ra
+
+import (
+	"encoding/binary"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"unicode"
+
+	"elereader/internal/jam"
+	"elereader/internal/ui"
+)
+
+const (
+	userBytes = 1016
+	// MsgArea is the uint16 at this offset inside USERSrecord.
+	userMsgArea = 953
+	// UserInfo begins after Baud, SYSINFO, and TIMELOG.
+	exitUser = 2 + 168 + 71
+	// Absolute offset of the current message area in EXITINFO.BBS.
+	exitMsgArea = exitUser + userMsgArea
+
+	msgRecBytes = 224
+	msgNameOff  = 4
+	msgNameLen  = 41
+	msgTypeOff  = 45
+	msgAttrOff  = 47
+	msgAkaOff   = 143
+	msgJamOff   = 145
+	msgJamLen   = 61
+	attrJAM     = 0x80
+	// MESSAGES.RA attribute bit 2 is file attaches (1 shl 2).
+	attrAttach = 0x04
+
+	// Pascal paths and the address list in CONFIG.RA.
+	cfgAttachOff  = 873
+	cfgAttachLen  = 61
+	cfgMsgBaseOff = 995
+	cfgMsgBaseLen = 61
+	cfgEditorOff  = 1117
+	cfgEditorLen  = 61
+	cfgAddrOff    = 1178
+	cfgAddrLen    = 8
+	cfgAddrCount  = 10
+)
+
+// Current reads the caller's message area. The working directory is the
+// node directory and holds EXITINFO.BBS. MESSAGES.RA and CONFIG.RA are
+// in the ELEBBS directory, or the RA directory when ELEBBS is not set.
+// CONFIG.RA supplies MsgBasePath for a relative JAM name. EleBBS changes
+// areas before the door runs, so only this area is returned.
+func Current(nodeDir string) (ui.Area, error) {
+	if nodeDir == "" {
+		nodeDir = "."
+	}
+	areaNum, err := messageArea(nodeDir)
+	if err != nil {
+		return ui.Area{}, err
+	}
+	sysDir, err := findSystem()
+	if err != nil {
+		return ui.Area{}, err
+	}
+	recs, err := readMessages(filepath.Join(sysDir, "MESSAGES.RA"))
+	if err != nil {
+		recs, err = readMessages(filepath.Join(sysDir, "messages.ra"))
+		if err != nil {
+			return ui.Area{}, err
+		}
+	}
+	cfg := readConfig(sysDir)
+	root := cfg.msgBase
+	if root == "" {
+		root = sysDir
+	}
+	for _, rec := range recs {
+		if int(rec.num) != areaNum {
+			continue
+		}
+		path := joinBase(root, rec.jam)
+		if path == "" {
+			return ui.Area{}, fmt.Errorf("message area %d has no JAM path", areaNum)
+		}
+		name := rec.name
+		if name == "" {
+			name = fmt.Sprintf("Area %d", rec.num)
+		}
+		return ui.Area{
+			Name:        name,
+			Path:        path,
+			Kind:        areaKind(rec.typ),
+			Origin:      addressAt(cfg.addrs, rec.aka),
+			Editor:      cfg.editor,
+			Attach:      joinBase(sysDir, cfg.attach),
+			AllowAttach: rec.attr&attrAttach != 0,
+			Node:        nodeDir,
+			Sys:         sysDir,
+		}, nil
+	}
+	return ui.Area{}, fmt.Errorf("message area %d is not a JAM area in MESSAGES.RA", areaNum)
+}
+
+func messageArea(nodeDir string) (int, error) {
+	for _, name := range []string{"EXITINFO.BBS", "exitinfo.bbs"} {
+		b, err := os.ReadFile(filepath.Join(nodeDir, name))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return 0, err
+		}
+		if len(b) < exitMsgArea+2 {
+			return 0, fmt.Errorf("%s is too small to hold the current message area", name)
+		}
+		n := int(binary.LittleEndian.Uint16(b[exitMsgArea:]))
+		if n <= 0 {
+			return 0, fmt.Errorf("%s has no current message area", name)
+		}
+		return n, nil
+	}
+	return 0, fmt.Errorf("EXITINFO.BBS not found in %s", nodeDir)
+}
+
+type msgRec struct {
+	num  uint16
+	name string
+	jam  string
+	typ  byte
+	aka  byte
+	attr byte
+}
+
+func readMessages(path string) ([]msgRec, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if len(b) == 0 || len(b)%msgRecBytes != 0 {
+		return nil, fmt.Errorf("%s is %d bytes, not a multiple of the %d-byte RA area record", path, len(b), msgRecBytes)
+	}
+	var out []msgRec
+	for off := 0; off+msgRecBytes <= len(b); off += msgRecBytes {
+		rec := b[off : off+msgRecBytes]
+		num := binary.LittleEndian.Uint16(rec[0:2])
+		if num == 0 {
+			continue
+		}
+		jam := raString(rec[msgJamOff : msgJamOff+msgJamLen])
+		if rec[msgAttrOff]&attrJAM == 0 && jam == "" {
+			continue
+		}
+		out = append(out, msgRec{
+			num:  num,
+			name: raString(rec[msgNameOff : msgNameOff+msgNameLen]),
+			jam:  jam,
+			typ:  rec[msgTypeOff],
+			aka:  rec[msgAkaOff],
+			attr: rec[msgAttrOff],
+		})
+	}
+	return out, nil
+}
+
+func findSystem() (string, error) {
+	var checked []string
+	for _, key := range []string{"ELEBBS", "RA"} {
+		dir := strings.Trim(strings.TrimSpace(os.Getenv(key)), `"'`)
+		dir = strings.TrimRight(dir, `\/`)
+		if dir == "" {
+			continue
+		}
+		checked = append(checked, dir)
+		if fileExists(filepath.Join(dir, "MESSAGES.RA")) || fileExists(filepath.Join(dir, "messages.ra")) {
+			return dir, nil
+		}
+	}
+	if len(checked) == 0 {
+		return "", fmt.Errorf("MESSAGES.RA not found: ELEBBS and RA are not set")
+	}
+	return "", fmt.Errorf("MESSAGES.RA not found in %s", strings.Join(checked, " or "))
+}
+
+type bbsConfig struct {
+	msgBase string
+	attach  string
+	editor  string
+	addrs   []string
+}
+
+func readConfig(sysDir string) bbsConfig {
+	var cfg bbsConfig
+	for _, name := range []string{"CONFIG.RA", "config.ra"} {
+		b, err := os.ReadFile(filepath.Join(sysDir, name))
+		if err != nil {
+			continue
+		}
+		cfg.msgBase = pascalAt(b, cfgMsgBaseOff, cfgMsgBaseLen)
+		cfg.attach = pascalAt(b, cfgAttachOff, cfgAttachLen)
+		cfg.editor = pascalAt(b, cfgEditorOff, cfgEditorLen)
+		for i := 0; i < cfgAddrCount; i++ {
+			off := cfgAddrOff + i*cfgAddrLen
+			if off+cfgAddrLen > len(b) {
+				break
+			}
+			cfg.addrs = append(cfg.addrs, formatAddr(b[off:off+cfgAddrLen]))
+		}
+		return cfg
+	}
+	return cfg
+}
+
+func pascalAt(b []byte, off, n int) string {
+	if off < 0 || n <= 0 || off+n > len(b) {
+		return ""
+	}
+	return raString(b[off : off+n])
+}
+
+func formatAddr(b []byte) string {
+	if len(b) < 8 {
+		return ""
+	}
+	zone := binary.LittleEndian.Uint16(b[0:2])
+	net := binary.LittleEndian.Uint16(b[2:4])
+	node := binary.LittleEndian.Uint16(b[4:6])
+	point := binary.LittleEndian.Uint16(b[6:8])
+	if zone == 0 && net == 0 && node == 0 && point == 0 {
+		return ""
+	}
+	if point == 0 {
+		return fmt.Sprintf("%d:%d/%d", zone, net, node)
+	}
+	return fmt.Sprintf("%d:%d/%d.%d", zone, net, node, point)
+}
+
+func addressAt(addrs []string, aka byte) string {
+	if int(aka) < len(addrs) && addrs[aka] != "" {
+		return addrs[aka]
+	}
+	if len(addrs) > 0 {
+		return addrs[0]
+	}
+	return ""
+}
+
+func areaKind(typ byte) jam.AreaKind {
+	switch typ {
+	case 1:
+		return jam.AreaNetmail
+	case 2, 4:
+		return jam.AreaEcho
+	case 3:
+		return jam.AreaEmail
+	default:
+		return jam.AreaLocal
+	}
+}
+
+func joinBase(root, jam string) string {
+	jam = strings.TrimSpace(jam)
+	if jam == "" {
+		return ""
+	}
+	if filepath.IsAbs(jam) || strings.Contains(jam, ":") || strings.HasPrefix(jam, `\`) || strings.HasPrefix(jam, "/") {
+		return jam
+	}
+	return filepath.Join(root, jam)
+}
+
+func raString(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	n := int(b[0])
+	if n > 0 && n < len(b) && textish(b[1:1+n]) {
+		return clean(b[1 : 1+n])
+	}
+	return clean(cString(b))
+}
+
+func cString(b []byte) []byte {
+	for i, c := range b {
+		if c == 0 {
+			return b[:i]
+		}
+	}
+	return b
+}
+
+func textish(b []byte) bool {
+	for _, c := range b {
+		if c == 0 || c == '\t' {
+			continue
+		}
+		if c < 32 {
+			return false
+		}
+	}
+	return len(b) > 0
+}
+
+func clean(b []byte) string {
+	return strings.TrimRightFunc(string(b), unicode.IsSpace)
+}
+
+func fileExists(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && !st.IsDir()
+}
