@@ -37,6 +37,7 @@ type Area struct {
 	Editor      string
 	Attach      string
 	AllowAttach bool
+	SysopAccess bool
 	Node        string
 	Sys         string
 	Fetch       string
@@ -419,9 +420,10 @@ func (a *App) markSeen(h jam.Header) {
 	if a.base == nil {
 		return
 	}
+	// DOOR32 has the 1-based user record. EleBBS writes the 0-based one to .JLR.
 	id := uint32(0)
 	if a.user.UserNumber > 0 {
-		id = uint32(a.user.UserNumber)
+		id = uint32(a.user.UserNumber - 1)
 	}
 	toUser := eqName(h.To, a.user.RealName) || eqName(h.To, a.user.Alias)
 	high, attr, err := a.base.Seen(h, id, toUser, a.user.RealName, a.user.Alias)
@@ -533,13 +535,14 @@ func (a *App) openArea(i int) {
 		a.sel, a.top = 0, 0
 		return
 	}
+	msgs = a.visible(msgs)
 	a.msgs = msgs
 	a.sel = len(msgs) - 1
 	if a.sel < 0 {
 		a.sel = 0
 	}
 	for n, m := range msgs {
-		if m.Number > a.high {
+		if a.unread(m) {
 			a.sel = n
 			break
 		}
@@ -556,8 +559,28 @@ func (a *App) forUser(h jam.Header) bool {
 		eqName(h.To, a.user.RealName) || eqName(h.To, a.user.Alias)
 }
 
+// canSee is EleBBS ReadMsgAccess: private mail is shown to its sender,
+// its recipient, and users with sysop access to the area. Mail to All
+// is not treated as private.
+func (a *App) canSee(h jam.Header) bool {
+	if !h.Private() || isAll(h.To) || a.forUser(h) {
+		return true
+	}
+	return a.area >= 0 && a.area < len(a.areas) && a.areas[a.area].SysopAccess
+}
+
+func (a *App) visible(msgs []jam.Header) []jam.Header {
+	out := msgs[:0]
+	for _, m := range msgs {
+		if a.canSee(m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 func (a *App) mark(h jam.Header) string {
-	if h.Number > a.high {
+	if a.unread(h) {
 		return "*"
 	}
 	if h.Private() {
@@ -566,15 +589,24 @@ func (a *App) mark(h jam.Header) string {
 	return " "
 }
 
+// unread is the bright "new" mark. Mail to this user that has the received
+// bit was read, even when the lastread high-water mark is behind it.
+func (a *App) unread(h jam.Header) bool {
+	if h.Read() && (eqName(h.To, a.user.RealName) || eqName(h.To, a.user.Alias)) {
+		return false
+	}
+	return h.Number > a.high
+}
+
 func (a *App) subject(h jam.Header) string {
-	if h.Private() && !a.forUser(h) {
+	if !a.canSee(h) {
 		return "Private"
 	}
 	return h.Subject
 }
 
 func (a *App) listSubject(h jam.Header) string {
-	if h.Private() && !a.forUser(h) {
+	if !a.canSee(h) {
 		return "Private"
 	}
 	if names := a.attachNames(h); len(names) > 0 {
@@ -589,7 +621,7 @@ func (a *App) loadPreview() {
 		return
 	}
 	h := a.msgs[a.sel]
-	if h.Private() && !a.forUser(h) {
+	if !a.canSee(h) {
 		a.preview = []string{"This message is private."}
 		return
 	}
@@ -615,7 +647,7 @@ func (a *App) loadBody() {
 		return
 	}
 	h := a.msgs[a.sel]
-	if h.Private() && !a.forUser(h) {
+	if !a.canSee(h) {
 		a.body = []string{"This message is private."}
 		a.markSeen(h)
 		return
@@ -711,7 +743,7 @@ func (a *App) paintIndex(i int, selected bool) {
 	if selected {
 		color = attrBar
 	}
-	if !selected && a.msgs[i].Number > a.high {
+	if !selected && a.unread(a.msgs[i]) {
 		color = attrNew
 	}
 	h := a.msgs[i]

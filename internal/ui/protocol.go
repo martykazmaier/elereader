@@ -246,7 +246,7 @@ func writeUpControl(p Protocol, dir string, env xferEnv) error {
 }
 
 func (a *App) attachPaths(h jam.Header) []string {
-	if h.Private() && !a.forUser(h) {
+	if !a.canSee(h) {
 		return nil
 	}
 	dir := strings.TrimSpace(h.Subject)

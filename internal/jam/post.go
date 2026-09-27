@@ -103,21 +103,21 @@ func (b *Base) Post(msg Outgoing) (uint32, error) {
 // the user get the received bit. The lastread high water moves forward.
 func (b *Base) Seen(h Header, userID uint32, toUser bool, names ...string) (uint32, uint32, error) {
 	attr := h.Attr
+	var rcvdErr error
 	if toUser && attr&attrRead == 0 {
 		if !b.writable || h.HdrAt < hdrInfo {
-			return 0, attr, fmt.Errorf("message base is read-only")
-		}
-		var err error
-		attr, err = b.markReceived(h.HdrAt)
-		if err != nil {
-			return 0, h.Attr, err
+			rcvdErr = fmt.Errorf("message base is read-only")
+		} else if a, err := b.markReceived(h.HdrAt); err != nil {
+			rcvdErr = err
+		} else {
+			attr = a
 		}
 	}
 	high, err := b.advanceLastRead(h.Number, userID, names...)
 	if err != nil {
 		return 0, attr, err
 	}
-	return high, attr, nil
+	return high, attr, rcvdErr
 }
 
 // Delete marks a message deleted and drops it from the active count.
@@ -201,18 +201,9 @@ func (b *Base) advanceLastRead(number, userID uint32, names ...string) (uint32, 
 		if !want[crc] {
 			continue
 		}
-		id := binary.LittleEndian.Uint32(buf[off+4 : off+8])
+		// EleBBS FindLastRead matches on the name CRC only.
 		high := binary.LittleEndian.Uint32(buf[off+12 : off+16])
-		if userID != 0 && id != 0 && id != userID {
-			if high > best {
-				best = high
-			}
-			continue
-		}
 		seen[crc] = true
-		if userID != 0 && id == 0 {
-			binary.LittleEndian.PutUint32(buf[off+4:off+8], userID)
-		}
 		last := binary.LittleEndian.Uint32(buf[off+8 : off+12])
 		if number > last {
 			binary.LittleEndian.PutUint32(buf[off+8:off+12], number)

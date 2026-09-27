@@ -10,14 +10,15 @@ const contentWidth = 78
 const ansiWidth = 80
 const maxANSIRows = 2000
 
-// bodyLines draws the message the way a terminal would, then returns one
-// string per screen row. Cursor movement and erase stay inside that
-// buffer, so a message cannot clear the door.
+// bodyLines plays the message into an 80-column grid. Cursor-up and
+// cursor-forward stay inside that grid, so a picture that draws the next
+// piece on the same row is not left-aligned on a new line. A bare carriage
+// return is still a new line, which is how other systems store message text.
 func bodyLines(raw []byte, width int) []string {
 	if width <= 0 {
 		width = ansiWidth
 	}
-	c := &canvas{w: width, max: maxANSIRows, st: style{fg: 7}}
+	c := &canvas{w: width, max: maxANSIRows, st: style{fg: 7}, wrap: true}
 	c.write(filterMessage(raw))
 	rows := c.rows
 	for len(rows) > 0 && rowBlank(rows[len(rows)-1]) {
@@ -26,6 +27,22 @@ func bodyLines(raw []byte, width int) []string {
 	out := make([]string, len(rows))
 	for i, row := range rows {
 		out[i] = string(emitRow(row))
+	}
+	return out
+}
+
+func filterMessage(raw []byte) []byte {
+	var out []byte
+	for _, p := range splitRaw(raw) {
+		if len(p) > 0 && p[0] == 0x01 {
+			continue
+		}
+		plain := strings.TrimSpace(strings.ToUpper(string(stripSGR(p))))
+		if strings.HasPrefix(plain, "SEEN-BY:") || strings.HasPrefix(plain, "PATH:") {
+			continue
+		}
+		out = append(out, p...)
+		out = append(out, '\n')
 	}
 	return out
 }
@@ -55,60 +72,6 @@ func splitRaw(raw []byte) [][]byte {
 	return lines
 }
 
-func filterMessage(raw []byte) []byte {
-	var out []byte
-	for i := 0; i < len(raw); {
-		if atLineStart(out) && (kludgeLine(raw[i:]) || noiseLine(raw[i:])) {
-			i = skipLine(raw, i)
-			continue
-		}
-		switch raw[i] {
-		case 0x8D, 0x8A:
-			out = append(out, '\n')
-		case 0x01:
-			out = append(out, '@')
-		default:
-			out = append(out, raw[i])
-		}
-		i++
-	}
-	return out
-}
-
-func atLineStart(out []byte) bool {
-	return len(out) == 0 || out[len(out)-1] == '\n' || out[len(out)-1] == '\r'
-}
-
-func lineEnd(b []byte) int {
-	for i := 0; i < len(b); i++ {
-		if b[i] == '\n' || b[i] == '\r' || b[i] == 0x8A || b[i] == 0x8D {
-			return i
-		}
-	}
-	return len(b)
-}
-
-func skipLine(raw []byte, i int) int {
-	i += lineEnd(raw[i:])
-	if i < len(raw) && raw[i] == '\r' {
-		i++
-	}
-	if i < len(raw) && (raw[i] == '\n' || raw[i] == 0x8A || raw[i] == 0x8D) {
-		i++
-	}
-	return i
-}
-
-func kludgeLine(b []byte) bool {
-	return len(b) > 0 && b[0] == 0x01
-}
-
-func noiseLine(b []byte) bool {
-	end := lineEnd(b)
-	plain := strings.TrimSpace(strings.ToUpper(string(stripSGR(b[:end]))))
-	return strings.HasPrefix(plain, "SEEN-BY:") || strings.HasPrefix(plain, "PATH:")
-}
-
 type style struct {
 	fg    byte
 	bg    byte
@@ -128,6 +91,8 @@ type canvas struct {
 	sRow, sCol int
 	sSt        style
 	last       byte
+	wrap       bool
+	eatNL      bool
 }
 
 func (c *canvas) grow(row int) {
@@ -149,8 +114,13 @@ func (c *canvas) put(ch byte) {
 		ch = ' '
 	}
 	if c.col >= c.w {
-		c.col = 0
-		c.row++
+		if !c.wrap {
+			c.col = c.w - 1
+		} else {
+			c.col = 0
+			c.row++
+			c.eatNL = false
+		}
 	}
 	if c.row < 0 {
 		c.row = 0
@@ -164,7 +134,22 @@ func (c *canvas) put(ch byte) {
 	}
 	c.rows[c.row][c.col] = cell{ch: ch, st: c.st}
 	c.last = ch
-	c.col++
+	if c.col < c.w-1 {
+		c.col++
+		c.eatNL = false
+		return
+	}
+	if !c.wrap {
+		return
+	}
+	c.col = 0
+	c.row++
+	c.eatNL = true
+	if c.row >= c.max {
+		c.row = c.max - 1
+		c.col = c.w - 1
+		c.eatNL = false
+	}
 }
 
 func (c *canvas) move(row, col int) {
@@ -182,6 +167,7 @@ func (c *canvas) move(row, col int) {
 	if c.col >= c.w {
 		c.col = c.w - 1
 	}
+	c.eatNL = false
 	c.grow(c.row)
 }
 
@@ -197,20 +183,30 @@ func (c *canvas) write(b []byte) {
 		switch b[i] {
 		case '\r':
 			c.col = 0
-		case '\n':
+			c.eatNL = false
+			if i+1 >= len(b) || (b[i+1] != '\n' && b[i+1] != 0x8A) {
+				c.row++
+				if c.row >= c.max {
+					c.row = c.max - 1
+				}
+			}
+		case '\n', 0x8A, 0x8D:
+			if c.eatNL {
+				c.eatNL = false
+				break
+			}
 			c.row++
 			c.col = 0
 			if c.row >= c.max {
 				c.row = c.max - 1
 			}
 		case '\t':
-			n := 8 - (c.col % 8)
-			if c.col < 0 {
-				n = 8
+			c.eatNL = false
+			stop := c.col + 8 - (c.col % 8)
+			if stop >= c.w {
+				stop = c.w - 1
 			}
-			for k := 0; k < n; k++ {
-				c.put(' ')
-			}
+			c.col = stop
 		default:
 			if b[i] >= 0x20 {
 				c.put(b[i])
@@ -234,7 +230,9 @@ func (c *canvas) escape(b []byte) int {
 			return len(b)
 		}
 		body := b[2:i]
-		if !csiPrivate(body) {
+		if csiPrivate(body) {
+			c.privateMode(b[i], csiNumbers(body))
+		} else {
 			c.csi(b[i], csiNumbers(body))
 		}
 		return i + 1
@@ -260,10 +258,6 @@ func (c *canvas) escape(b []byte) int {
 		return 2
 	case '8':
 		c.row, c.col, c.st = c.sRow, c.sCol, c.sSt
-		return 2
-	case 'c':
-		c.st = style{fg: 7}
-		c.row, c.col = 0, 0
 		return 2
 	default:
 		return 2
@@ -321,7 +315,21 @@ func csiParam(params []int, i, def int) int {
 	return params[i]
 }
 
+func (c *canvas) privateMode(final byte, params []int) {
+	if final != 'h' && final != 'l' {
+		return
+	}
+	for _, p := range params {
+		if p == 7 {
+			c.wrap = final == 'h'
+		}
+	}
+}
+
 func (c *canvas) csi(final byte, params []int) {
+	if final != 'm' {
+		c.eatNL = false
+	}
 	switch final {
 	case 'm':
 		c.st = applySGR(c.st, params)
@@ -337,7 +345,7 @@ func (c *canvas) csi(final byte, params []int) {
 		if c.row >= c.max {
 			c.row = c.max - 1
 		}
-	case 'C':
+	case 'C', 'a':
 		c.col += csiParam(params, 0, 1)
 		if c.col >= c.w {
 			c.col = c.w - 1
@@ -359,7 +367,7 @@ func (c *canvas) csi(final byte, params []int) {
 			c.row = 0
 		}
 		c.col = 0
-	case 'G':
+	case '`', 'G':
 		c.col = csiParam(params, 0, 1) - 1
 		if c.col < 0 {
 			c.col = 0
@@ -367,23 +375,10 @@ func (c *canvas) csi(final byte, params []int) {
 		if c.col >= c.w {
 			c.col = c.w - 1
 		}
-	case 's':
-		c.sRow, c.sCol, c.sSt = c.row, c.col, c.st
-	case 'u':
-		c.row, c.col, c.st = c.sRow, c.sCol, c.sSt
 	case 'K':
 		c.eraseLine(csiParam(params, 0, 0))
 	case 'J':
 		c.eraseDisplay(csiParam(params, 0, 0))
-	case 'b':
-		ch := c.last
-		if ch == 0 {
-			ch = ' '
-		}
-		n := csiParam(params, 0, 1)
-		for k := 0; k < n; k++ {
-			c.put(ch)
-		}
 	}
 }
 
@@ -392,9 +387,6 @@ func (c *canvas) eraseLine(mode int) {
 		return
 	}
 	c.grow(c.row)
-	if c.row >= len(c.rows) {
-		return
-	}
 	from, to := c.col, c.w
 	switch mode {
 	case 1:
@@ -469,18 +461,14 @@ func applySGR(st style, params []int) style {
 				bright = 8
 			}
 			st.fg = bright + byte(p-30)
-		case p >= 90 && p <= 97:
-			st.fg = 8 + byte(p-90)
 		case p >= 40 && p <= 47:
 			st.bg = byte(p - 40)
-		case p >= 100 && p <= 107:
-			st.bg = 8 + byte(p-100)
 		case p == 39:
 			st.fg = 7
 		case p == 49:
 			st.bg = 0
 		case p == 38 || p == 48:
-			if i+1 < len(params) && params[i+1] == 5 {
+			if i+1 < len(params) && params[i+1] == 5 && i+2 < len(params) {
 				i += 2
 			} else if i+1 < len(params) && params[i+1] == 2 {
 				i += 4
@@ -498,9 +486,6 @@ func styleANSI(st style) []byte {
 		fg -= 8
 	}
 	bg := 40 + int(st.bg)
-	if st.bg >= 8 {
-		bg = 100 + int(st.bg-8)
-	}
 	blink := ""
 	if st.blink {
 		blink = "5;"

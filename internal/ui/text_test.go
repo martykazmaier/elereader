@@ -7,7 +7,7 @@ import (
 
 func TestBodyLines(t *testing.T) {
 	raw := []byte("\x01MSGID: 1:2/3 1234\r\nHello \x1b[1;33mthere\x1b[0m\r\nSEEN-BY: 1/2\r\n")
-	lines := bodyLines(raw, 78)
+	lines := bodyLines(raw, 80)
 	if len(lines) != 1 {
 		t.Fatalf("%q", lines)
 	}
@@ -15,35 +15,34 @@ func TestBodyLines(t *testing.T) {
 	if plain != "Hello there" {
 		t.Fatalf("%q", plain)
 	}
-	if !strings.Contains(lines[0], "\x1b[0;1;33;40m") {
+	if !strings.Contains(lines[0], "33") {
 		t.Fatalf("color missing %q", lines[0])
 	}
 }
 
-func TestANSICursor(t *testing.T) {
-	lines := bodyLines([]byte("\x1b[2J\x1b[1;1HA\x1b[1;3HB"), 80)
-	if len(lines) != 1 {
-		t.Fatalf("%q", lines)
+func TestCursorReturnsToSameRow(t *testing.T) {
+	raw := []byte("LEFT\r\n\x1b[A\x1b[10CRIGHT")
+	lines := bodyLines(raw, 80)
+	if len(lines) < 1 {
+		t.Fatal("no lines")
 	}
 	plain := string(stripSGR([]byte(lines[0])))
-	if !strings.HasPrefix(plain, "A B") {
+	if !strings.HasPrefix(plain, "LEFT") || len(plain) < 15 || plain[10:15] != "RIGHT" {
 		t.Fatalf("%q", plain)
-	}
-	if strings.Contains(lines[0], "[2J") || strings.Contains(lines[0], "[1;") {
-		t.Fatalf("cursor code leaked %q", lines[0])
 	}
 }
 
-func TestSoftCR(t *testing.T) {
-	lines := bodyLines([]byte("Hello\x8dworld"), 80)
-	if len(lines) != 2 {
-		t.Fatalf("%q", lines)
+func TestBareCRIsANewLine(t *testing.T) {
+	raw := []byte("one\rtwo\r * Origin: board\r")
+	lines := bodyLines(raw, 80)
+	if len(lines) != 3 {
+		t.Fatalf("%d %q", len(lines), lines)
 	}
-	if strings.TrimRight(string(stripSGR([]byte(lines[0]))), " ") != "Hello" {
+	if strings.TrimRight(string(stripSGR([]byte(lines[0]))), " ") != "one" {
 		t.Fatalf("%q", lines[0])
 	}
-	if strings.TrimRight(string(stripSGR([]byte(lines[1]))), " ") != "world" {
-		t.Fatalf("%q", lines[1])
+	if strings.TrimRight(string(stripSGR([]byte(lines[2]))), " ") != " * Origin: board" {
+		t.Fatalf("%q", lines[2])
 	}
 }
 

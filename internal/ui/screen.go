@@ -70,8 +70,8 @@ func (s *Screen) rule(y int, left, right byte, title string) {
 	s.hold()
 }
 
-// row paints one full 80-column line. Message ANSI is already resolved
-// into the text, so this does not run the message's own cursor codes.
+// row paints one full 80-column line. Message cursor codes are already
+// resolved, so the picture is not clipped by the side of the frame.
 func (s *Screen) row(y int, text []byte) {
 	text = padVisible(string(text), ansiWidth)
 	s.cup(y, 1)

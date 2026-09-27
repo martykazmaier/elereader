@@ -465,6 +465,7 @@ func (a *App) refresh(number uint32) {
 		a.note = err.Error()
 		return
 	}
+	msgs = a.visible(msgs)
 	a.msgs = msgs
 	a.sel = len(msgs) - 1
 	for i, m := range msgs {

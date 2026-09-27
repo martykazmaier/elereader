@@ -52,3 +52,45 @@ func TestPaintLightbar(t *testing.T) {
 		t.Fatal("bar move redrew the title")
 	}
 }
+
+func TestUnreadMark(t *testing.T) {
+	a := &App{
+		user:  door32.Drop{RealName: "Martin", Alias: "Marty"},
+		areas: []Area{{Kind: jam.AreaEmail}},
+		high:  3,
+	}
+	if !a.unread(jam.Header{Number: 8, To: "Martin", Attr: 0x4}) {
+		t.Fatal("new mail")
+	}
+	if a.unread(jam.Header{Number: 8, To: "Marty", Attr: 0x4 | 0x8}) {
+		t.Fatal("received mail is read even past the high water")
+	}
+	if a.unread(jam.Header{Number: 3, To: "All"}) {
+		t.Fatal("at the high water is read")
+	}
+	if !a.unread(jam.Header{Number: 4, To: "All"}) {
+		t.Fatal("past the high water is new")
+	}
+}
+
+func TestPrivateVisibility(t *testing.T) {
+	a := &App{
+		user:  door32.Drop{RealName: "Martin", Alias: "Marty"},
+		areas: []Area{{Kind: jam.AreaLocal}},
+	}
+	msgs := []jam.Header{
+		{Number: 1, From: "Sue", To: "Bob", Attr: 0x4},
+		{Number: 2, From: "Sue", To: "Marty", Attr: 0x4},
+		{Number: 3, From: "Martin", To: "Bob", Attr: 0x4},
+		{Number: 4, From: "Sue", To: "All", Attr: 0x4},
+		{Number: 5, From: "Sue", To: "Bob"},
+	}
+	got := a.visible(append([]jam.Header(nil), msgs...))
+	if len(got) != 4 || got[0].Number != 2 {
+		t.Fatalf("user sees %+v", got)
+	}
+	a.areas[0].SysopAccess = true
+	if got := a.visible(append([]jam.Header(nil), msgs...)); len(got) != 5 {
+		t.Fatalf("sysop sees %d", len(got))
+	}
+}

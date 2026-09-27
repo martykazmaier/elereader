@@ -22,6 +22,14 @@ const (
 	exitUser = 2 + 168 + 71
 	// Absolute offset of the current message area in EXITINFO.BBS.
 	exitMsgArea = exitUser + userMsgArea
+	// USERSrecord Flags (array[1..4] of Byte) and Security (word).
+	exitFlags    = exitUser + 436
+	exitSecurity = exitUser + 450
+
+	// MESSAGErecord SysopSecurity, SysopFlags, SysopNotFlags.
+	msgSysopSecOff      = 72
+	msgSysopFlagsOff    = 74
+	msgSysopNotFlagsOff = 78
 
 	msgRecBytes = 224
 	msgNameOff  = 4
@@ -56,7 +64,7 @@ func Current(nodeDir string) (ui.Area, error) {
 	if nodeDir == "" {
 		nodeDir = "."
 	}
-	areaNum, err := messageArea(nodeDir)
+	areaNum, user, err := messageArea(nodeDir)
 	if err != nil {
 		return ui.Area{}, err
 	}
@@ -96,6 +104,7 @@ func Current(nodeDir string) (ui.Area, error) {
 			Editor:      cfg.editor,
 			Attach:      joinBase(sysDir, cfg.attach),
 			AllowAttach: rec.attr&attrAttach != 0,
+			SysopAccess: sysopAccess(user, rec),
 			Node:        nodeDir,
 			Sys:         sysDir,
 		}, nil
@@ -103,34 +112,59 @@ func Current(nodeDir string) (ui.Area, error) {
 	return ui.Area{}, fmt.Errorf("message area %d is not a JAM area in MESSAGES.RA", areaNum)
 }
 
-func messageArea(nodeDir string) (int, error) {
+type exitUserInfo struct {
+	security uint16
+	flags    [4]byte
+}
+
+func messageArea(nodeDir string) (int, exitUserInfo, error) {
+	var user exitUserInfo
 	for _, name := range []string{"EXITINFO.BBS", "exitinfo.bbs"} {
 		b, err := os.ReadFile(filepath.Join(nodeDir, name))
 		if err != nil {
 			if os.IsNotExist(err) {
 				continue
 			}
-			return 0, err
+			return 0, user, err
 		}
 		if len(b) < exitMsgArea+2 {
-			return 0, fmt.Errorf("%s is too small to hold the current message area", name)
+			return 0, user, fmt.Errorf("%s is too small to hold the current message area", name)
 		}
 		n := int(binary.LittleEndian.Uint16(b[exitMsgArea:]))
 		if n <= 0 {
-			return 0, fmt.Errorf("%s has no current message area", name)
+			return 0, user, fmt.Errorf("%s has no current message area", name)
 		}
-		return n, nil
+		copy(user.flags[:], b[exitFlags:exitFlags+4])
+		user.security = binary.LittleEndian.Uint16(b[exitSecurity:])
+		return n, user, nil
 	}
-	return 0, fmt.Errorf("EXITINFO.BBS not found in %s", nodeDir)
+	return 0, user, fmt.Errorf("EXITINFO.BBS not found in %s", nodeDir)
+}
+
+// sysopAccess is EleBBS SysOpAccess: the user has every SysopFlags bit,
+// none of the SysopNotFlags bits, and at least SysopSecurity.
+func sysopAccess(user exitUserInfo, rec msgRec) bool {
+	for i := 0; i < 4; i++ {
+		if user.flags[i]&rec.sysopFlags[i] != rec.sysopFlags[i] {
+			return false
+		}
+		if user.flags[i]&rec.sysopNotFlags[i] != 0 {
+			return false
+		}
+	}
+	return user.security >= rec.sysopSec
 }
 
 type msgRec struct {
-	num  uint16
-	name string
-	jam  string
-	typ  byte
-	aka  byte
-	attr byte
+	num           uint16
+	name          string
+	jam           string
+	typ           byte
+	aka           byte
+	attr          byte
+	sysopSec      uint16
+	sysopFlags    [4]byte
+	sysopNotFlags [4]byte
 }
 
 func readMessages(path string) ([]msgRec, error) {
@@ -152,14 +186,18 @@ func readMessages(path string) ([]msgRec, error) {
 		if rec[msgAttrOff]&attrJAM == 0 && jam == "" {
 			continue
 		}
-		out = append(out, msgRec{
-			num:  num,
-			name: raString(rec[msgNameOff : msgNameOff+msgNameLen]),
-			jam:  jam,
-			typ:  rec[msgTypeOff],
-			aka:  rec[msgAkaOff],
-			attr: rec[msgAttrOff],
-		})
+		m := msgRec{
+			num:      num,
+			name:     raString(rec[msgNameOff : msgNameOff+msgNameLen]),
+			jam:      jam,
+			typ:      rec[msgTypeOff],
+			aka:      rec[msgAkaOff],
+			attr:     rec[msgAttrOff],
+			sysopSec: binary.LittleEndian.Uint16(rec[msgSysopSecOff:]),
+		}
+		copy(m.sysopFlags[:], rec[msgSysopFlagsOff:msgSysopFlagsOff+4])
+		copy(m.sysopNotFlags[:], rec[msgSysopNotFlagsOff:msgSysopNotFlagsOff+4])
+		out = append(out, m)
 	}
 	return out, nil
 }

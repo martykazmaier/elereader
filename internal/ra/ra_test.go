@@ -36,6 +36,8 @@ func TestCurrentArea(t *testing.T) {
 
 	exitinfo := make([]byte, exitMsgArea+2)
 	binary.LittleEndian.PutUint16(exitinfo[exitMsgArea:], 2)
+	binary.LittleEndian.PutUint16(exitinfo[exitSecurity:], 100)
+	exitinfo[exitFlags] = 0x01
 	if err := os.WriteFile(filepath.Join(node, "EXITINFO.BBS"), exitinfo, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +59,8 @@ func TestCurrentArea(t *testing.T) {
 	putArea(msgs[0:], 1, "General", `msg\general`)
 	putArea(msgs[msgRecBytes:], 2, "EleBBS", `C:\bbs\msg\elebbs`)
 	msgs[msgRecBytes+msgTypeOff] = 1
+	binary.LittleEndian.PutUint16(msgs[msgRecBytes+msgSysopSecOff:], 100)
+	msgs[msgRecBytes+msgSysopFlagsOff] = 0x01
 	if err := os.WriteFile(filepath.Join(sys, "MESSAGES.RA"), msgs, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +68,16 @@ func TestCurrentArea(t *testing.T) {
 	area, err := Current(node)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !area.SysopAccess {
+		t.Fatal("security 100 with flag A1 should have sysop access")
+	}
+	msgs[msgRecBytes+msgSysopNotFlagsOff] = 0x01
+	if err := os.WriteFile(filepath.Join(sys, "MESSAGES.RA"), msgs, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if a, _ := Current(node); a.SysopAccess {
+		t.Fatal("a SysopNotFlags bit the user has must deny sysop access")
 	}
 	if area.Name != "EleBBS" || area.Path != `C:\bbs\msg\elebbs` {
 		t.Fatalf("current %+v", area)

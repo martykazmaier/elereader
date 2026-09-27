@@ -94,6 +94,14 @@ func TestSeenAndDelete(t *testing.T) {
 	if high != 5 || b.HighRead("Martin") != 5 || b.HighRead("Sysop") != 1 {
 		t.Fatalf("martin %d sysop %d returned %d", b.HighRead("Martin"), b.HighRead("Sysop"), high)
 	}
+	// A record EleBBS wrote under another user number is still this user's.
+	h.Number = 9
+	if high, _, err = b.Seen(h, 3, false, "Martin"); err != nil || high != 9 {
+		t.Fatalf("other user number high %d err %v", high, err)
+	}
+	if st, _ := b.jlr.Stat(); st.Size() != 32 {
+		t.Fatalf("lastread file grew to %d bytes", st.Size())
+	}
 	if err := b.Delete(msgs[0]); err != nil {
 		t.Fatal(err)
 	}
