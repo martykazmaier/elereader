@@ -14,17 +14,19 @@ import (
 )
 
 const (
-	listY     = 3
-	listRows  = 19
-	bodyY     = 6
-	bodyRows  = 16
-	statusY   = 23
-	modeList  = 1
-	modeRead  = 2
-	modeReply = 3
-	modeProto = 4
-	modeAsk   = 5
-	modeUpAsk = 6
+	listY      = 3
+	listRows   = 19
+	bodyY      = 6
+	bodyRows   = 16
+	statusY    = 23
+	modeList   = 1
+	modeRead   = 2
+	modeReply  = 3
+	modeProto  = 4
+	modeAsk    = 5
+	modeUpAsk  = 6
+	modeSearch = 7
+	modeHelp   = 8
 )
 
 // Area is the one conference EleBBS already selected.
@@ -44,45 +46,50 @@ type Area struct {
 
 // App is the full-screen lightbar reader.
 type App struct {
-	port       io.ReadWriter
-	scr        *Screen
-	user       door32.Drop
-	areas      []Area
-	area       int
-	base       *jam.Base
-	msgs       []jam.Header
-	high       uint32
-	sel        int
-	top        int
-	mode       int
-	err        string
-	body       []string
-	bodyTop    int
-	quit       bool
-	replyTo    string
-	replySub   string
-	replyFld   int
-	replyEdit  bool
-	replyBuf   string
-	replyHold  string
-	replyNote  string
-	replyAddr  string
-	replyFrom  int
-	postNew    bool
-	quote      []string
-	editPath   string
-	attaches   []string
-	note       string
-	protos     []Protocol
-	protoSel   int
-	protoTop   int
-	protoFiles []string
-	protoUp    bool
-	protoMsg   bool
-	uploadDir  string
-	release    func() func()
-	settle     time.Time
-	redraw     chan struct{}
+	port        io.ReadWriter
+	scr         *Screen
+	user        door32.Drop
+	areas       []Area
+	area        int
+	base        *jam.Base
+	msgs        []jam.Header
+	high        uint32
+	sel         int
+	top         int
+	mode        int
+	err         string
+	body        []string
+	bodyTop     int
+	quit        bool
+	replyTo     string
+	replySub    string
+	replyFld    int
+	replyEdit   bool
+	replyBuf    string
+	replyHold   string
+	replyNote   string
+	replyAddr   string
+	replyFrom   int
+	postNew     bool
+	quote       []string
+	editPath    string
+	attaches    []string
+	note        string
+	protos      []Protocol
+	protoSel    int
+	protoTop    int
+	protoFiles  []string
+	protoUp     bool
+	protoMsg    bool
+	uploadDir   string
+	searchFrom  int
+	searchField byte
+	searchBuf   string
+	searchText  string
+	helpFrom    int
+	release     func() func()
+	settle      time.Time
+	redraw      chan struct{}
 }
 
 // Terminals keep their transfer window up for a moment after the protocol
@@ -306,6 +313,10 @@ func (a *App) on(ev Event) bool {
 		return a.onAsk(ev)
 	case modeUpAsk:
 		return a.onUpAsk(ev)
+	case modeSearch:
+		return a.onSearch(ev)
+	case modeHelp:
+		return a.onHelp(ev)
 	default:
 		return a.onList(ev)
 	}
@@ -344,6 +355,10 @@ func (a *App) onList(ev Event) bool {
 			a.beginReply()
 		case 'k', 'K':
 			a.killMessage()
+		case 's', 'S':
+			a.beginSearch()
+		case '?':
+			a.beginHelp()
 		}
 	}
 	return false
@@ -394,6 +409,10 @@ func (a *App) onRead(ev Event) bool {
 			a.downloadFiles()
 		case 'k', 'K':
 			a.killMessage()
+		case 's', 'S':
+			a.beginSearch()
+		case '?':
+			a.beginHelp()
 		case ' ':
 			a.scrollBody(bodyRows)
 		}
@@ -684,6 +703,12 @@ func (a *App) paintAll() {
 	case modeUpAsk:
 		a.paintUpAsk()
 		return
+	case modeSearch:
+		a.paintSearch()
+		return
+	case modeHelp:
+		a.paintHelp()
+		return
 	}
 	title := "Elereader"
 	if a.area >= 0 && a.area < len(a.areas) {
@@ -694,7 +719,7 @@ func (a *App) paintAll() {
 	a.paintChoices()
 	a.scr.rule(22, chJL, chJR, a.note)
 	a.paintStatus()
-	a.scr.rule(24, chBL, chBR, "Up/Dn  Enter Read  P Post  R Reply  K Kill  Q Quit")
+	a.scr.rule(24, chBL, chBR, "Up/Dn  Enter Read  P Post  R Reply  K Kill  S Search  ? Help  Q Quit")
 }
 
 func (a *App) paintRead() {
@@ -722,7 +747,7 @@ func (a *App) paintRead() {
 		a.scr.content(22, attrNorm, fit(" "+a.note, contentWidth))
 	}
 	a.scr.content(statusY, attrNorm, a.statusText())
-	a.scr.rule(24, chBL, chBR, "Up/Dn  Left/Right  R Reply  P Post  K Kill  D Download  F Files  Q Back")
+	a.scr.rule(24, chBL, chBR, "Lt/Rt  R Reply  P Post  K Kill  S Search  D/F Download  ? Help  Q Back")
 }
 
 func (a *App) paintChoices() {

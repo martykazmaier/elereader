@@ -53,6 +53,50 @@ func TestPaintLightbar(t *testing.T) {
 	}
 }
 
+func TestSearch(t *testing.T) {
+	var buf bytes.Buffer
+	a := &App{
+		scr:   &Screen{w: &buf},
+		user:  door32.Drop{Emulation: door32.EmuANSI, Started: time.Now()},
+		areas: []Area{{Name: "General"}},
+		mode:  modeList,
+		msgs: []jam.Header{
+			{Number: 1, From: "Sysop", To: "All", Subject: "Welcome"},
+			{Number: 2, From: "Martin", To: "All", Subject: "Lightbar"},
+			{Number: 3, From: "Avon", To: "Martin", Subject: "Crash test"},
+		},
+		sel: 1,
+	}
+	keys := func(s string) {
+		for i := 0; i < len(s); i++ {
+			a.on(Event{Kind: KindByte, Ch: s[i]})
+		}
+	}
+	keys("sfsys")
+	a.on(Event{Kind: KindEnter})
+	if a.mode != modeList || a.sel != 0 {
+		t.Fatalf("from search: mode %d sel %d", a.mode, a.sel)
+	}
+	keys("ss\b\b\bTEST")
+	a.on(Event{Kind: KindEnter})
+	if a.sel != 2 {
+		t.Fatalf("subject search sel %d", a.sel)
+	}
+	keys("st\b\b\b\bnobody")
+	a.on(Event{Kind: KindEnter})
+	if a.sel != 2 || a.note == "" {
+		t.Fatalf("miss: sel %d note %q", a.sel, a.note)
+	}
+	keys("?")
+	if a.mode != modeHelp {
+		t.Fatalf("help mode %d", a.mode)
+	}
+	keys("x")
+	if a.mode != modeList {
+		t.Fatalf("after help mode %d", a.mode)
+	}
+}
+
 func TestUnreadMark(t *testing.T) {
 	a := &App{
 		user:  door32.Drop{RealName: "Martin", Alias: "Marty"},
