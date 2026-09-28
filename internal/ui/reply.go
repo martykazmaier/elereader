@@ -159,12 +159,12 @@ func (a *App) paintUpAsk() {
 	}
 	a.scr.rule(1, chTL, chTR, title)
 	a.scr.content(2, attrNorm, blank(contentWidth))
-	a.scr.content(3, attrNorm, fit(" Upload a message?", contentWidth))
+	a.scr.content(3, attrNorm, fit(" Upload a message? (y/N)", contentWidth))
 	for y := 4; y <= 22; y++ {
 		a.scr.content(y, attrNorm, blank(contentWidth))
 	}
 	a.scr.content(statusY, attrNorm, a.statusText())
-	a.scr.rule(24, chBL, chBR, "Y Yes  N No  Esc Back")
+	a.scr.rule(24, chBL, chBR, "Y Yes  N or Enter No  Esc Back")
 }
 
 func (a *App) onUpAsk(ev Event) bool {
@@ -408,17 +408,18 @@ func (a *App) paintAsk() {
 		title = "Post"
 	}
 	a.scr.rule(1, chTL, chTR, title)
-	a.scr.content(3, attrNorm, fit(" Attach a file to this message?", contentWidth))
+	a.scr.content(2, attrNorm, blank(contentWidth))
+	a.scr.content(3, attrNorm, fit(" Attach a file to this message? (y/N)", contentWidth))
 	for y := 4; y <= 22; y++ {
 		a.scr.content(y, attrNorm, blank(contentWidth))
 	}
 	a.scr.content(statusY, attrNorm, a.statusText())
-	a.scr.rule(24, chBL, chBR, "Y Yes  N No")
+	a.scr.rule(24, chBL, chBR, "Y Yes  N or Enter No")
 }
 
 func (a *App) onAsk(ev Event) bool {
 	switch ev.Kind {
-	case KindEsc:
+	case KindEsc, KindEnter:
 		a.sendReply()
 	case KindByte:
 		switch ev.Ch {
