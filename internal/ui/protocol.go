@@ -291,12 +291,8 @@ func dirFiles(dir string) []string {
 }
 
 func protocolFile(name string) bool {
-	switch strings.ToLower(filepath.Base(name)) {
-	case "dszlog", "dsz.log":
-		return true
-	default:
-		return false
-	}
+	base := strings.ToLower(filepath.Base(name))
+	return strings.HasPrefix(base, "dszlog") || strings.HasPrefix(base, "dsz.log")
 }
 
 func loggedNames(text, key string, word byte) []string {

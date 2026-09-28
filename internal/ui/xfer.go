@@ -97,9 +97,8 @@ func (a *App) beginUpload() {
 }
 
 func (a *App) beginMsgUpload() {
-	dir := filepath.Join(a.workDir(), "msgup")
-	_ = os.RemoveAll(dir)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	dir, err := a.makeAttachDir()
+	if err != nil {
 		a.msgUploadFailed(err.Error())
 		return
 	}
@@ -145,7 +144,7 @@ func (a *App) runMsgUpload(p Protocol, env xferEnv) {
 		}
 		return
 	}
-	path := filepath.Join(a.workDir(), "msgtmp")
+	path, _ := filepath.Abs(filepath.Join(a.workDir(), "msgtmp"))
 	if err := os.WriteFile(path, body, 0644); err != nil {
 		a.msgUploadFailed(err.Error())
 		return
@@ -530,6 +529,21 @@ func (a *App) eraseProtocolFiles(p Protocol, env xferEnv) {
 		}
 		if base := filepath.Base(ctlName); base != "" && base != "." {
 			remove(filepath.Join(dir, base))
+		}
+	}
+	if a.uploadDir == "" {
+		return
+	}
+	logBase := strings.ToLower(filepath.Base(logName))
+	ctlBase := strings.ToLower(filepath.Base(ctlName))
+	ents, _ := os.ReadDir(a.uploadDir)
+	for _, ent := range ents {
+		name := strings.ToLower(ent.Name())
+		if ent.IsDir() {
+			continue
+		}
+		if protocolFile(name) || name == logBase || (ctlName != "" && name == ctlBase) {
+			remove(filepath.Join(a.uploadDir, ent.Name()))
 		}
 	}
 }

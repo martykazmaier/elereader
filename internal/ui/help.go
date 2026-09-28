@@ -9,7 +9,7 @@ var helpLines = []string{
 	"   R                            Reply to the message",
 	"   K                            Kill (delete) the message",
 	"   S                            Search by Subject, To, From or Body",
-	"   Q or Esc                     Quit",
+	"   Q or Esc                     Quit, or leave the search results",
 	"",
 	" Reading a message",
 	"   Up/Down PgUp/PgDn Space      Scroll the message",

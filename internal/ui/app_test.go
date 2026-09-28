@@ -74,18 +74,26 @@ func TestSearch(t *testing.T) {
 	}
 	keys("sfsys")
 	a.on(Event{Kind: KindEnter})
-	if a.mode != modeList || a.sel != 0 {
-		t.Fatalf("from search: mode %d sel %d", a.mode, a.sel)
+	if a.mode != modeList || len(a.msgs) != 1 || a.msgs[0].Number != 1 {
+		t.Fatalf("from search: mode %d msgs %v", a.mode, a.msgs)
 	}
-	keys("ss\b\b\bTEST")
-	a.on(Event{Kind: KindEnter})
-	if a.sel != 2 {
-		t.Fatalf("subject search sel %d", a.sel)
+	a.on(Event{Kind: KindEsc})
+	if len(a.msgs) != 3 || a.allMsgs != nil || a.sel != 0 {
+		t.Fatalf("after Esc: %d msgs, sel %d", len(a.msgs), a.sel)
 	}
-	keys("st\b\b\b\bnobody")
+	keys("ssTEST")
 	a.on(Event{Kind: KindEnter})
-	if a.sel != 2 || a.note == "" {
-		t.Fatalf("miss: sel %d note %q", a.sel, a.note)
+	if len(a.msgs) != 1 || a.msgs[0].Number != 3 {
+		t.Fatalf("subject search %v", a.msgs)
+	}
+	keys("q")
+	if len(a.msgs) != 3 || a.sel != 2 {
+		t.Fatalf("after Q: %d msgs, sel %d", len(a.msgs), a.sel)
+	}
+	keys("stnobody")
+	a.on(Event{Kind: KindEnter})
+	if len(a.msgs) != 3 || a.allMsgs != nil || a.note == "" {
+		t.Fatalf("miss: %d msgs note %q", len(a.msgs), a.note)
 	}
 	keys("?")
 	if a.mode != modeHelp {

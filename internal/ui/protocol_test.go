@@ -56,8 +56,28 @@ func TestDSZLogSkipsLog(t *testing.T) {
 	if len(got) != 1 || got[0] != "NOTES.ZIP" {
 		t.Fatalf("%v", got)
 	}
-	if !protocolFile("dszlog") {
-		t.Fatal("dszlog should not be treated as the upload")
+	for _, name := range []string{"dszlog", "DSZLOG", "dszlog.1", "DSZLOG.TXT", `c:\ele\node1\dsz.log`} {
+		if !protocolFile(name) {
+			t.Fatalf("%s should not be treated as the upload", name)
+		}
+	}
+	if protocolFile("notes.txt") {
+		t.Fatal("notes.txt is an upload")
+	}
+}
+
+func TestUploadDropsLogs(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"DSZLOG.1", "xfer.log", "msg.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &App{uploadDir: dir, areas: []Area{{Node: dir}}}
+	a.eraseProtocolFiles(Protocol{LogFile: `c:\somewhere\XFER.LOG`}, xferEnv{})
+	got := dirFiles(dir)
+	if len(got) != 1 || filepath.Base(got[0]) != "msg.txt" {
+		t.Fatalf("left %v", got)
 	}
 }
 

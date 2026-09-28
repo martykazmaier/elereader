@@ -87,6 +87,8 @@ type App struct {
 	searchBuf   string
 	searchText  string
 	helpFrom    int
+	allMsgs     []jam.Header
+	searchTitle string
 	release     func() func()
 	settle      time.Time
 	redraw      chan struct{}
@@ -344,10 +346,18 @@ func (a *App) onList(ev Event) bool {
 		a.mode = modeRead
 		a.paintAll()
 	case KindEsc:
+		if a.allMsgs != nil {
+			a.clearSearch()
+			return false
+		}
 		return true
 	case KindByte:
 		switch ev.Ch {
 		case 'q', 'Q':
+			if a.allMsgs != nil {
+				a.clearSearch()
+				return false
+			}
 			return true
 		case 'p', 'P':
 			a.beginPost()
@@ -439,6 +449,7 @@ func (a *App) killMessage() {
 	}
 	a.note = "Deleted message " + strconv.FormatUint(uint64(h.Number), 10)
 	a.msgs = append(a.msgs[:a.sel], a.msgs[a.sel+1:]...)
+	a.forgetMessage(h.Number)
 	if a.sel >= len(a.msgs) {
 		a.sel = len(a.msgs) - 1
 	}
@@ -483,9 +494,7 @@ func (a *App) markSeen(h jam.Header) {
 	if high > a.high {
 		a.high = high
 	}
-	if a.sel >= 0 && a.sel < len(a.msgs) && a.msgs[a.sel].Number == h.Number {
-		a.msgs[a.sel].Attr = attr
-	}
+	a.setAttr(h.Number, attr)
 }
 
 func (a *App) stepRead(delta int) {
@@ -556,6 +565,7 @@ func (a *App) openArea(i int) {
 		a.base = nil
 	}
 	a.msgs = nil
+	a.dropSearch()
 	a.err = ""
 	a.area = i
 	if i < 0 || i >= len(a.areas) {
@@ -714,12 +724,17 @@ func (a *App) paintAll() {
 	if a.area >= 0 && a.area < len(a.areas) {
 		title = "Elereader  " + a.areas[a.area].Name
 	}
+	help := "Up/Dn  Enter Read  P Post  R Reply  K Kill  S Search  ? Help  Q Quit"
+	if a.allMsgs != nil {
+		title += "  Search: " + a.searchTitle
+		help = "Up/Dn  Enter Read  P Post  R Reply  K Kill  S Search  ? Help  Q Back"
+	}
 	a.scr.rule(1, chTL, chTR, title)
 	a.scr.content(2, attrHead, columnHead())
 	a.paintChoices()
 	a.scr.rule(22, chJL, chJR, a.note)
 	a.paintStatus()
-	a.scr.rule(24, chBL, chBR, "Up/Dn  Enter Read  P Post  R Reply  K Kill  S Search  ? Help  Q Quit")
+	a.scr.rule(24, chBL, chBR, help)
 }
 
 func (a *App) paintRead() {
