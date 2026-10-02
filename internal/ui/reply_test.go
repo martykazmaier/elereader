@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -99,6 +100,14 @@ func TestUploadedText(t *testing.T) {
 	_ = os.WriteFile(small, []byte("hi"), 0644)
 	_ = os.WriteFile(big, []byte("Hello there\r\n\x1a\x1a\x1a"), 0644)
 	if got := string(uploadedText([]string{small, big})); got != "Hello there\r\n" {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestQuoteKeepsBreaks(t *testing.T) {
+	got := quoteLines([]string{"", "Hi there.", "", "", "Second para", "line two", ""})
+	want := []string{"> Hi there.", "", "> Second para", "> line two"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("%q", got)
 	}
 }

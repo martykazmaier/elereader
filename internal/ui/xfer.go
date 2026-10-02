@@ -128,7 +128,7 @@ func (a *App) runMsgUpload(p Protocol, env xferEnv) {
 	}
 	line := expandUpload(p.UpCmd, dir, env)
 	a.eraseProtocolFiles(p, env)
-	back := a.lendCaller()
+	back := a.lendCaller(true)
 	defer back()
 	err := runExternal(line, a.workDir(), a.user.Handle, false)
 	a.pullLogged(p, env)
@@ -372,7 +372,7 @@ func (a *App) runProto(i int) {
 			line += " " + quoteArg(file)
 		}
 	}
-	back := a.lendCaller()
+	back := a.lendCaller(true)
 	defer back()
 	err := runExternal(line, a.workDir(), a.user.Handle, false)
 	setBlocking(a.port, true)
@@ -394,7 +394,7 @@ func (a *App) runUpload(p Protocol, env xferEnv) {
 	}
 	line := expandUpload(p.UpCmd, a.uploadDir, env)
 	a.eraseProtocolFiles(p, env)
-	back := a.lendCaller()
+	back := a.lendCaller(true)
 	defer back()
 	err := runExternal(line, a.workDir(), a.user.Handle, false)
 	a.pullLogged(p, env)

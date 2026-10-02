@@ -56,6 +56,18 @@ func telnetAnswer(cmd, opt byte) []byte {
 }
 
 // Parse pulls complete events out of b.
+// enterTail drops the LF or NUL that telnet sends after the CR of Enter.
+// Bytes are read one at a time, so the pair can be split.
+type enterTail struct {
+	afterCR bool
+}
+
+func (t *enterTail) skip(b byte) bool {
+	after := t.afterCR
+	t.afterCR = b == '\r'
+	return after && (b == '\n' || b == 0)
+}
+
 // reply is telnet IAC traffic the door should send back.
 // rest is an incomplete suffix; wait briefly, then Flush it.
 func Parse(b []byte) (events []Event, reply []byte, rest []byte) {

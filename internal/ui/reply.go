@@ -207,7 +207,7 @@ func (a *App) writeMessage() {
 		a.paintReply()
 		return
 	}
-	back := a.lendCaller()
+	back := a.lendCaller(false)
 	defer back()
 	err = runInherited(line, dir, a.user.Handle)
 	_ = os.Remove(filepath.Join(dir, "msginf"))
@@ -761,17 +761,25 @@ func isAll(to string) bool {
 	return s == "all" || s == "all users"
 }
 
+// quoteLines keeps the message's line breaks, including the blank lines
+// between paragraphs. Runs of blank lines become one.
 func quoteLines(lines []string) []string {
 	var out []string
 	for _, ln := range lines {
 		plain := strings.TrimRight(string(stripSGR([]byte(ln))), " ")
 		if strings.TrimSpace(plain) == "" {
+			if len(out) > 0 && out[len(out)-1] != "" {
+				out = append(out, "")
+			}
 			continue
 		}
 		out = append(out, "> "+plain)
-		if len(out) == 30 {
+		if len(out) >= 30 {
 			break
 		}
+	}
+	for len(out) > 0 && out[len(out)-1] == "" {
+		out = out[:len(out)-1]
 	}
 	return out
 }

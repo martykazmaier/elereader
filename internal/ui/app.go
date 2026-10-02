@@ -115,7 +115,10 @@ func setBlocking(p io.ReadWriter, on bool) {
 
 // lendCaller stops the reader and lets an external program use the connection.
 // Call the returned function after the message screen has been drawn again.
-func (a *App) lendCaller() func() {
+// lendCaller hands the line to an external program. After a transfer,
+// protocol bytes can trail in, so keys are ignored briefly; after the
+// editor the caller's next key is real.
+func (a *App) lendCaller(transfer bool) func() {
 	var resume func()
 	if a.release != nil {
 		resume = a.release()
@@ -129,15 +132,17 @@ func (a *App) lendCaller() func() {
 		if resume != nil {
 			resume()
 		}
-		a.redrawSoon()
+		a.redrawSoon(transfer)
 	}
 }
 
-func (a *App) redrawSoon() {
+func (a *App) redrawSoon(transfer bool) {
 	if a.redraw == nil || len(redrawAfter) == 0 {
 		return
 	}
-	a.settle = time.Now().Add(redrawAfter[0])
+	if transfer {
+		a.settle = time.Now().Add(redrawAfter[0])
+	}
 	for _, d := range redrawAfter {
 		time.AfterFunc(d, func() {
 			select {
@@ -239,6 +244,7 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 	}()
 
 	var pending []byte
+	var tail enterTail
 	esc := time.NewTimer(time.Hour)
 	stopTimer(esc)
 	tick := time.NewTicker(5 * time.Second)
@@ -262,6 +268,9 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 			a.paintAll()
 		case b := <-keys:
 			if time.Now().Before(a.settle) {
+				continue
+			}
+			if tail.skip(b) {
 				continue
 			}
 			pending = append(pending, b)
@@ -330,10 +339,10 @@ func (a *App) onList(ev Event) bool {
 		a.move(a.sel - 1)
 	case KindDown:
 		a.move(a.sel + 1)
-	case KindPgUp:
-		a.move(a.sel - listRows)
-	case KindPgDn:
-		a.move(a.sel + listRows)
+	case KindPgUp, KindLeft:
+		a.page(-1)
+	case KindPgDn, KindRight:
+		a.page(1)
 	case KindHome:
 		a.move(0)
 	case KindEnd:
@@ -527,6 +536,48 @@ func (a *App) move(dest int) {
 	a.paintStatus()
 }
 
+// page flips the list a full screen, keeping the lightbar on the same row.
+// At the first or last page it moves to the first or last message.
+func (a *App) page(dir int) {
+	n := a.count()
+	if n == 0 {
+		return
+	}
+	maxTop := n - listRows
+	if maxTop < a.top {
+		maxTop = a.top
+	}
+	if maxTop < 0 {
+		maxTop = 0
+	}
+	top := a.top + dir*listRows
+	if top < 0 {
+		top = 0
+	}
+	if top > maxTop {
+		top = maxTop
+	}
+	sel := a.sel + (top - a.top)
+	if top == a.top {
+		sel = 0
+		if dir > 0 {
+			sel = n - 1
+		}
+	}
+	if sel < 0 {
+		sel = 0
+	}
+	if sel >= n {
+		sel = n - 1
+	}
+	if sel == a.sel && top == a.top {
+		return
+	}
+	a.sel, a.top = sel, top
+	a.paintChoices()
+	a.paintStatus()
+}
+
 func (a *App) scrollBody(delta int) {
 	maxTop := len(a.body) - bodyRows
 	if maxTop < 0 {
@@ -593,14 +644,18 @@ func (a *App) openArea(i int) {
 	if a.sel < 0 {
 		a.sel = 0
 	}
+	unread := false
 	for n, m := range msgs {
 		if a.unread(m) {
 			a.sel = n
+			unread = true
 			break
 		}
 	}
 	a.top = 0
-	if a.sel >= listRows {
+	if unread {
+		a.top = a.sel
+	} else if a.sel >= listRows {
 		a.top = a.sel - listRows + 1
 	}
 }

@@ -3,7 +3,8 @@ package ui
 var helpLines = []string{
 	"",
 	" Message list",
-	"   Up/Down PgUp/PgDn Home/End   Move the lightbar",
+	"   Up/Down  Home/End            Move the lightbar",
+	"   Left/Right  PgUp/PgDn        Previous or next page",
 	"   Enter                        Read the message",
 	"   P                            Post a new message",
 	"   R                            Reply to the message",

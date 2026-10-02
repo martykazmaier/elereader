@@ -16,6 +16,19 @@ func TestParseArrows(t *testing.T) {
 	}
 }
 
+func TestEnterTail(t *testing.T) {
+	var tail enterTail
+	var kept []byte
+	for _, b := range []byte("\rA\r\n\r\x00\n") {
+		if !tail.skip(b) {
+			kept = append(kept, b)
+		}
+	}
+	if string(kept) != "\rA\r\r\n" {
+		t.Fatalf("%q", kept)
+	}
+}
+
 func TestParsePartialEsc(t *testing.T) {
 	_, _, rest := Parse([]byte{0x1b})
 	if len(rest) != 1 {

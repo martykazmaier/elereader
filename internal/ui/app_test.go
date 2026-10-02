@@ -105,6 +105,33 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+func TestPageKeys(t *testing.T) {
+	var buf bytes.Buffer
+	a := &App{scr: &Screen{w: &buf}, areas: []Area{{Name: "General"}}, mode: modeList}
+	for i := 1; i <= 50; i++ {
+		a.msgs = append(a.msgs, jam.Header{Number: uint32(i)})
+	}
+	a.sel, a.top = 2, 0
+	a.on(Event{Kind: KindRight})
+	if a.top != listRows || a.sel != 2+listRows {
+		t.Fatalf("right: top %d sel %d", a.top, a.sel)
+	}
+	a.on(Event{Kind: KindPgDn})
+	if a.top != 50-listRows || a.sel != 2+listRows+(50-listRows-listRows) {
+		t.Fatalf("pgdn: top %d sel %d", a.top, a.sel)
+	}
+	a.on(Event{Kind: KindPgDn})
+	if a.sel != 49 {
+		t.Fatalf("last page: sel %d", a.sel)
+	}
+	a.on(Event{Kind: KindLeft})
+	a.on(Event{Kind: KindPgUp})
+	a.on(Event{Kind: KindPgUp})
+	if a.top != 0 || a.sel != 0 {
+		t.Fatalf("first page: top %d sel %d", a.top, a.sel)
+	}
+}
+
 func TestUnreadMark(t *testing.T) {
 	a := &App{
 		user:  door32.Drop{RealName: "Martin", Alias: "Marty"},
