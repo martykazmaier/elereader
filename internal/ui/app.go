@@ -655,6 +655,12 @@ func (a *App) openArea(i int) {
 	a.top = 0
 	if unread {
 		a.top = a.sel
+		if last := len(msgs) - listRows; a.top > last {
+			a.top = last
+		}
+		if a.top < 0 {
+			a.top = 0
+		}
 	} else if a.sel >= listRows {
 		a.top = a.sel - listRows + 1
 	}
