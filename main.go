@@ -35,8 +35,8 @@ func main() {
 	}
 	flag.Parse()
 
-	if runtime.GOOS != "windows" || runtime.GOARCH != "386" {
-		fmt.Fprintf(os.Stderr, "elereader must be a 32-bit Windows program (windows/386). This binary is %s/%s.\n", runtime.GOOS, runtime.GOARCH)
+	if runtime.GOOS == "windows" && runtime.GOARCH != "386" {
+		fmt.Fprintf(os.Stderr, "elereader for Windows must be 32-bit (windows/386). This binary is %s/%s.\n", runtime.GOOS, runtime.GOARCH)
 		fmt.Fprintln(os.Stderr, "Build it with build.bat.")
 		os.Exit(1)
 	}
