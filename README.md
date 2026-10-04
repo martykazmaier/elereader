@@ -131,3 +131,10 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o elereader .
 ```
 
 Run the tests with `go test ./...`.
+
+## License
+
+Copyright (C) 2026 Martin Kazmaier.
+
+Elereader may be distributed under the terms of the Q Public License
+version 1.0. See [LICENSE](LICENSE).
