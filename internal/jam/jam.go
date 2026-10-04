@@ -36,6 +36,10 @@ const (
 	subSubject  = 6
 	subPID      = 7
 	subFile     = 9
+	subKludge   = 2000
+	subSeenBy   = 2001
+	subPath     = 2002
+	subTZUTC    = 2004
 
 	attrFile = 0x00002000
 )
@@ -89,6 +93,7 @@ type Header struct {
 	Origin  string
 	Dest    string
 	MsgID   string
+	Kludges []string
 	When    time.Time
 	Attr    uint32
 	Offset  uint32
@@ -311,6 +316,19 @@ func parseSubs(buf []byte, h *Header) {
 			h.Dest = val
 		case subMsgID:
 			h.MsgID = val
+			h.Kludges = append(h.Kludges, "MSGID: "+val)
+		case subReplyID:
+			h.Kludges = append(h.Kludges, "REPLY: "+val)
+		case subPID:
+			h.Kludges = append(h.Kludges, "PID: "+val)
+		case subKludge:
+			h.Kludges = append(h.Kludges, val)
+		case subSeenBy:
+			h.Kludges = append(h.Kludges, "SEEN-BY: "+val)
+		case subPath:
+			h.Kludges = append(h.Kludges, "PATH: "+val)
+		case subTZUTC:
+			h.Kludges = append(h.Kludges, "TZUTC: "+val)
 		case subSender:
 			h.From = val
 		case subReceiver:

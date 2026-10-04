@@ -112,6 +112,20 @@ func TestQuoteKeepsBreaks(t *testing.T) {
 	}
 }
 
+func TestKludgeQuote(t *testing.T) {
+	a := &App{}
+	got := a.kludgeQuote(jam.Header{Kludges: []string{"MSGID: 21:1/101 7b71e2df", "TID: Mystic", "SEEN-BY: 1/2 3", "PATH: 1/101"}})
+	want := []string{"> @MSGID: 21:1/101 7b71e2df", "> @TID: Mystic", "> SEEN-BY: 1/2 3", "> @PATH: 1/101"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("%q", got)
+	}
+	for _, ln := range got {
+		if strings.ContainsRune(ln, 1) {
+			t.Fatalf("live kludge in %q", ln)
+		}
+	}
+}
+
 func TestMsgInf(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "msginf")

@@ -53,7 +53,80 @@ func (a *App) beginReply() {
 	a.attaches = nil
 	a.replyNote = replyHint(a.kind())
 	a.quote = quoteLines(a.body)
+	if a.current().SysopAccess {
+		a.mode = modeKludgeAsk
+		a.paintAll()
+		return
+	}
 	a.openComposer()
+}
+
+func (a *App) paintKludgeAsk() {
+	a.scr.rule(1, chTL, chTR, "Reply")
+	a.scr.content(2, attrNorm, blank(contentWidth))
+	a.scr.content(3, attrNorm, fit(" Include kludge lines in the quote? (y/N)", contentWidth))
+	for y := 4; y <= 22; y++ {
+		a.scr.content(y, attrNorm, blank(contentWidth))
+	}
+	a.scr.content(statusY, attrNorm, a.statusText())
+	a.scr.rule(24, chBL, chBR, "Y Yes  N or Enter No  Esc Cancel")
+}
+
+func (a *App) onKludgeAsk(ev Event) bool {
+	switch ev.Kind {
+	case KindEsc:
+		a.leaveComposer()
+	case KindEnter:
+		a.openComposer()
+	case KindByte:
+		switch ev.Ch {
+		case 'y', 'Y':
+			if a.sel >= 0 && a.sel < len(a.msgs) {
+				if k := a.kludgeQuote(a.msgs[a.sel]); len(k) > 0 {
+					a.quote = append(append(k, ""), a.quote...)
+				}
+			}
+			a.openComposer()
+		case 'n', 'N':
+			a.openComposer()
+		case 'q', 'Q':
+			return true
+		}
+	}
+	return false
+}
+
+// kludgeQuote is the original message's control lines from the header and
+// the text. ^A is shown as @ so the quote cannot become a live kludge.
+func (a *App) kludgeQuote(h jam.Header) []string {
+	var out []string
+	add := func(k string) {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			return
+		}
+		if strings.HasPrefix(k, "SEEN-BY:") {
+			out = append(out, "> "+k)
+		} else {
+			out = append(out, "> @"+k)
+		}
+	}
+	for _, k := range h.Kludges {
+		add(k)
+	}
+	if a.base != nil {
+		if raw, err := a.base.Text(h); err == nil {
+			for _, ln := range strings.FieldsFunc(string(raw), func(r rune) bool { return r == '\r' || r == '\n' || r == 0x8D }) {
+				switch {
+				case strings.HasPrefix(ln, "\x01"):
+					add(ln[1:])
+				case strings.HasPrefix(ln, "SEEN-BY:"):
+					add(ln)
+				}
+			}
+		}
+	}
+	return out
 }
 
 func (a *App) openComposer() {

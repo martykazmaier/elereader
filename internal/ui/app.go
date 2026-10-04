@@ -14,19 +14,20 @@ import (
 )
 
 const (
-	listY      = 3
-	listRows   = 19
-	bodyY      = 6
-	bodyRows   = 16
-	statusY    = 23
-	modeList   = 1
-	modeRead   = 2
-	modeReply  = 3
-	modeProto  = 4
-	modeAsk    = 5
-	modeUpAsk  = 6
-	modeSearch = 7
-	modeHelp   = 8
+	listY         = 3
+	listRows      = 19
+	bodyY         = 6
+	bodyRows      = 16
+	statusY       = 23
+	modeList      = 1
+	modeRead      = 2
+	modeReply     = 3
+	modeProto     = 4
+	modeAsk       = 5
+	modeUpAsk     = 6
+	modeSearch    = 7
+	modeHelp      = 8
+	modeKludgeAsk = 9
 )
 
 // Area is the one conference EleBBS already selected.
@@ -328,6 +329,8 @@ func (a *App) on(ev Event) bool {
 		return a.onSearch(ev)
 	case modeHelp:
 		return a.onHelp(ev)
+	case modeKludgeAsk:
+		return a.onKludgeAsk(ev)
 	default:
 		return a.onList(ev)
 	}
@@ -779,6 +782,9 @@ func (a *App) paintAll() {
 		return
 	case modeHelp:
 		a.paintHelp()
+		return
+	case modeKludgeAsk:
+		a.paintKludgeAsk()
 		return
 	}
 	title := "Elereader"
