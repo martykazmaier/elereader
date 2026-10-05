@@ -22,6 +22,7 @@ type Outgoing struct {
 	Attach   bool
 	MsgID    string
 	ReplyID  string
+	TZUTC    string
 }
 
 // Post appends a message. The returned number is the new JAM message number.
@@ -72,6 +73,9 @@ func (b *Base) Post(msg Outgoing) (uint32, error) {
 	if id := clip(msg.ReplyID, 100); id != "" {
 		subs = append(subs, field(subReplyID, id)...)
 		replyCRC = CRC32String(id)
+	}
+	if tz := clip(msg.TZUTC, 20); tz != "" {
+		subs = append(subs, field(subTZUTC, tz)...)
 	}
 	for _, name := range msg.Files {
 		if name != "" {

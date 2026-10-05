@@ -112,6 +112,14 @@ func TestQuoteKeepsBreaks(t *testing.T) {
 	}
 }
 
+func TestTZUTC(t *testing.T) {
+	for in, want := range map[string]string{"-0600": "-0600", "+1300": "1300", " 0000 ": "0000", "": ""} {
+		if got := tzutc(in); got != want {
+			t.Fatalf("%q gave %q", in, got)
+		}
+	}
+}
+
 func TestKludgeQuote(t *testing.T) {
 	a := &App{}
 	got := a.kludgeQuote(jam.Header{Kludges: []string{"MSGID: 21:1/101 7b71e2df", "TID: Mystic", "SEEN-BY: 1/2 3", "PATH: 1/101"}})

@@ -71,11 +71,15 @@ func TestPostMsgID(t *testing.T) {
 	if _, err := b.Post(Outgoing{
 		From: "Martin", To: "All", Subject: "Re: Test", Text: []byte("Hi\r"),
 		Kind: AreaEcho, MsgID: "21:2/148 6ab8d746", ReplyID: "21:1/101 7b71e2df",
+		TZUTC: "-0600",
 	}); err != nil {
 		t.Fatal(err)
 	}
 	msgs, _ := b.List()
 	got := msgs[len(msgs)-1]
+	if k := got.Kludges[len(got.Kludges)-1]; k != "TZUTC: -0600" {
+		t.Fatalf("tzutc %q", k)
+	}
 	if got.MsgID != "21:2/148 6ab8d746" || b.MessageID(got) != got.MsgID {
 		t.Fatalf("msgid %q", got.MsgID)
 	}

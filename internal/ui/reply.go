@@ -425,6 +425,7 @@ func (a *App) sendReply() {
 		Attach:   fileAttach,
 		MsgID:    newMsgID(a.current().Origin, a.user.Node, time.Now()),
 		ReplyID:  replyID,
+		TZUTC:    tzutc(os.Getenv("TZ")),
 	})
 	if err != nil {
 		a.replyNote = err.Error()
@@ -810,6 +811,12 @@ func newMsgID(addr string, node int, now time.Time) string {
 	}
 	serial := uint32(now.Unix()) ^ (uint32(node)&0x1F)<<27
 	return fmt.Sprintf("%s %08x", addr, serial)
+}
+
+// tzutc is the TZUTC kludge value from %TZ%. FTS-4008 writes east of UTC
+// without a plus sign.
+func tzutc(tz string) string {
+	return strings.TrimPrefix(strings.TrimSpace(tz), "+")
 }
 
 func netmailAddr(s string) bool {
