@@ -16,6 +16,19 @@ func TestParseArrows(t *testing.T) {
 	}
 }
 
+func TestParseBBSKeys(t *testing.T) {
+	ev, _, rest := Parse([]byte("\x1b[H\x1b[K\x1b[V\x1b[U\x1b[4~\x1b[5~\x1b[6~"))
+	want := []Kind{KindHome, KindEnd, KindPgUp, KindPgDn, KindEnd, KindPgUp, KindPgDn}
+	if len(rest) != 0 || len(ev) != len(want) {
+		t.Fatalf("events %v rest %v", ev, rest)
+	}
+	for i, k := range want {
+		if ev[i].Kind != k {
+			t.Fatalf("event %d is %v, want %v", i, ev[i].Kind, k)
+		}
+	}
+}
+
 func TestEnterTail(t *testing.T) {
 	var tail enterTail
 	var kept []byte

@@ -221,6 +221,13 @@ func csiKind(final byte, body string) Kind {
 		return KindHome
 	case 'F':
 		return KindEnd
+	// ANSI-BBS terminals (SyncTERM and others) send these for End, PgUp, PgDn.
+	case 'K':
+		return KindEnd
+	case 'V':
+		return KindPgUp
+	case 'U':
+		return KindPgDn
 	case '~':
 		p := body
 		if i := indexByteStr(p, ';'); i >= 0 {
