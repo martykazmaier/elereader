@@ -53,6 +53,40 @@ func TestPaintLightbar(t *testing.T) {
 	}
 }
 
+func TestCheckIdle(t *testing.T) {
+	var buf bytes.Buffer
+	a := &App{
+		scr:   &Screen{w: &buf},
+		user:  door32.Drop{CommType: door32.CommTelnet, Emulation: door32.EmuANSI, Started: time.Now()},
+		areas: []Area{{Name: "General", IdleSecs: 400}},
+	}
+	start := time.Now()
+	a.lastKey = start
+	if a.checkIdle(start.Add(369*time.Second)) || a.idleWarned {
+		t.Fatal("warned too early")
+	}
+	if a.checkIdle(start.Add(371*time.Second)) || !a.idleWarned {
+		t.Fatal("no warning 30 seconds before")
+	}
+	if !bytes.Contains(buf.Bytes(), []byte("disconnected for inactivity")) || !bytes.Contains(buf.Bytes(), []byte("\a\a")) {
+		t.Fatal("warning not shown")
+	}
+	if !a.checkIdle(start.Add(400*time.Second)) || !a.idleOut {
+		t.Fatal("not timed out at the limit")
+	}
+
+	a.idleOut, a.idleWarned = false, false
+	a.user.CommType = door32.CommLocal
+	if a.checkIdle(start.Add(time.Hour)) {
+		t.Fatal("local caller timed out")
+	}
+	a.user.CommType = door32.CommTelnet
+	a.areas[0].IdleSecs = 0
+	if a.checkIdle(start.Add(time.Hour)) {
+		t.Fatal("zero UserTimeOut timed out")
+	}
+}
+
 func TestSearch(t *testing.T) {
 	var buf bytes.Buffer
 	a := &App{

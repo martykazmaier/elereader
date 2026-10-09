@@ -53,6 +53,7 @@ const (
 	cfgAddrOff    = 1178
 	cfgAddrLen    = 8
 	cfgAddrCount  = 10
+	cfgTimeoutOff = 1479
 )
 
 // Current reads the caller's message area. The working directory is the
@@ -80,6 +81,7 @@ func Current(nodeDir string) (ui.Area, error) {
 		}
 	}
 	cfg := readConfig(sysDir)
+	idle := idleSeconds(cfg)
 	root := cfg.msgBase
 	if root == "" {
 		root = sysDir
@@ -102,6 +104,7 @@ func Current(nodeDir string) (ui.Area, error) {
 			Kind:        areaKind(rec.typ),
 			Origin:      addressAt(cfg.addrs, rec.aka),
 			Editor:      cfg.editor,
+			IdleSecs:    idle,
 			Attach:      joinBase(sysDir, cfg.attach),
 			AllowAttach: rec.attr&attrAttach != 0,
 			SysopAccess: sysopAccess(user, rec),
@@ -226,6 +229,8 @@ type bbsConfig struct {
 	attach  string
 	editor  string
 	addrs   []string
+	idle    int
+	found   bool
 }
 
 func readConfig(sysDir string) bbsConfig {
@@ -238,6 +243,10 @@ func readConfig(sysDir string) bbsConfig {
 		cfg.msgBase = pascalAt(b, cfgMsgBaseOff, cfgMsgBaseLen)
 		cfg.attach = pascalAt(b, cfgAttachOff, cfgAttachLen)
 		cfg.editor = pascalAt(b, cfgEditorOff, cfgEditorLen)
+		cfg.found = true
+		if len(b) >= cfgTimeoutOff+2 {
+			cfg.idle = int(binary.LittleEndian.Uint16(b[cfgTimeoutOff:]))
+		}
 		for i := 0; i < cfgAddrCount; i++ {
 			off := cfgAddrOff + i*cfgAddrLen
 			if off+cfgAddrLen > len(b) {
@@ -249,6 +258,18 @@ func readConfig(sysDir string) bbsConfig {
 	}
 	cfg.addrs = append(cfg.addrs, readAkas(sysDir, len(cfg.addrs))...)
 	return cfg
+}
+
+// idleSeconds is UserTimeOut from CONFIG.RA in %RA%, or from the system
+// directory when %RA% has none.
+func idleSeconds(sys bbsConfig) int {
+	dir := strings.TrimRight(strings.Trim(strings.TrimSpace(os.Getenv("RA")), `"'`), `\/`)
+	if dir != "" {
+		if cfg := readConfig(dir); cfg.found {
+			return cfg.idle
+		}
+	}
+	return sys.idle
 }
 
 // readAkas returns AKAS.BBS padded so AKA 10 is its first record. EleBBS

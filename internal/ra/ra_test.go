@@ -92,7 +92,7 @@ func TestCurrentArea(t *testing.T) {
 
 func TestAkasBBS(t *testing.T) {
 	sys := t.TempDir()
-	cfg := make([]byte, cfgAddrOff+cfgAddrCount*cfgAddrLen)
+	cfg := make([]byte, cfgTimeoutOff+2)
 	binary.LittleEndian.PutUint16(cfg[cfgAddrOff:], 1)
 	binary.LittleEndian.PutUint16(cfg[cfgAddrOff+2:], 340)
 	binary.LittleEndian.PutUint16(cfg[cfgAddrOff+4:], 1101)
@@ -102,6 +102,13 @@ func TestAkasBBS(t *testing.T) {
 	akas := []byte{0xE7, 0x03, 0x2C, 0x01, 0x02, 0, 0, 0, 0x26, 0, 0xF7, 0x01, 0x1E, 0, 0, 0}
 	if err := os.WriteFile(filepath.Join(sys, "akas.bbs"), akas, 0644); err != nil {
 		t.Fatal(err)
+	}
+	binary.LittleEndian.PutUint16(cfg[cfgTimeoutOff:], 400)
+	if err := os.WriteFile(filepath.Join(sys, "CONFIG.RA"), cfg, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if got := readConfig(sys).idle; got != 400 {
+		t.Fatalf("UserTimeOut %d", got)
 	}
 	addrs := readConfig(sys).addrs
 	if got := addressAt(addrs, 0); got != "1:340/1101" {

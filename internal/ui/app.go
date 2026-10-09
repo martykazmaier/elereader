@@ -37,6 +37,7 @@ type Area struct {
 	Kind        jam.AreaKind
 	Origin      string
 	Editor      string
+	IdleSecs    int
 	Attach      string
 	AllowAttach bool
 	SysopAccess bool
@@ -95,6 +96,9 @@ type App struct {
 	release     func() func()
 	settle      time.Time
 	redraw      chan struct{}
+	lastKey     time.Time
+	idleWarned  bool
+	idleOut     bool
 }
 
 // Terminals keep their transfer window up for a moment after the protocol
@@ -135,8 +139,36 @@ func (a *App) lendCaller(transfer bool) func() {
 		if resume != nil {
 			resume()
 		}
+		a.touch()
 		a.redrawSoon(transfer)
 	}
+}
+
+func (a *App) touch() {
+	a.lastKey = time.Now()
+	a.idleWarned = false
+}
+
+// checkIdle follows EleBBS CheckIdle: no limit for local callers or a zero
+// UserTimeOut, one warning 30 seconds before, then the caller is let go.
+func (a *App) checkIdle(now time.Time) bool {
+	secs := a.current().IdleSecs
+	if secs <= 0 || a.user.CommType == door32.CommLocal {
+		return false
+	}
+	left := time.Duration(secs)*time.Second - now.Sub(a.lastKey)
+	if left <= 0 {
+		a.idleOut = true
+		return true
+	}
+	if secs > 30 && !a.idleWarned && left < 30*time.Second {
+		a.idleWarned = true
+		if a.scr != nil {
+			a.paintStatus()
+			a.scr.text("\a\a")
+		}
+	}
+	return false
 }
 
 func (a *App) redrawSoon(transfer bool) {
@@ -173,7 +205,9 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 			a.base.Close()
 		}
 		out := "\x1b[0m\x1b[?7h\x1b[?25h\x1b[2J\x1b[H"
-		if a.quit && a.timeUp() {
+		if a.idleOut {
+			out = "\x1b[0m\x1b[?7h\x1b[?25h\x1b[2J\x1b[12;1HUser Inactivity Timeout, Disconnecting\r\n"
+		} else if a.quit && a.timeUp() {
 			out = "\x1b[0m\x1b[?7h\x1b[?25h\x1b[2J\x1b[12;1HTime is up.\r\n"
 		}
 		_, _ = p.Write([]byte(out))
@@ -190,6 +224,7 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 	if a.user.CommType == door32.CommTelnet {
 		_, _ = p.Write(WillEcho())
 	}
+	a.touch()
 	a.paintAll()
 
 	keys := make(chan byte, 512)
@@ -262,6 +297,10 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 				a.quit = true
 				return
 			}
+			if a.checkIdle(time.Now()) {
+				a.quit = true
+				return
+			}
 			if a.mode != modeRead {
 				a.paintStatus()
 			}
@@ -270,6 +309,11 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 			stopTimer(esc)
 			a.paintAll()
 		case b := <-keys:
+			warned := a.idleWarned
+			a.touch()
+			if warned {
+				a.paintStatus()
+			}
 			if time.Now().Before(a.settle) {
 				continue
 			}
@@ -952,6 +996,9 @@ func (a *App) paintStatus() {
 }
 
 func (a *App) statusText() []byte {
+	if a.idleWarned {
+		return fit(" You are about to be disconnected for inactivity!", contentWidth)
+	}
 	mins, unlimited := a.user.Remaining(time.Now())
 	left := "no limit"
 	if !unlimited {
