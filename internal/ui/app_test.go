@@ -132,6 +132,24 @@ func TestPageKeys(t *testing.T) {
 	}
 }
 
+func TestNetAddrs(t *testing.T) {
+	from, to := netAddrs(jam.Header{Origin: "21:1/101", Dest: "21:2/148"}, nil)
+	if from != "21:1/101" || to != "21:2/148" {
+		t.Fatalf("header: %q %q", from, to)
+	}
+	raw := []byte("\x01INTL 21:2/148 1:229/426\r\x01FMPT 3\r\x01TOPT 0\rHello\r")
+	from, to = netAddrs(jam.Header{}, raw)
+	if from != "1:229/426.3" || to != "21:2/148" {
+		t.Fatalf("kludges: %q %q", from, to)
+	}
+	if got := withAddr("Martin", "21:2/148"); got != "Martin (21:2/148)" {
+		t.Fatal(got)
+	}
+	if got := withAddr("Martin", ""); got != "Martin" {
+		t.Fatal(got)
+	}
+}
+
 func TestUnreadMark(t *testing.T) {
 	a := &App{
 		user:  door32.Drop{RealName: "Martin", Alias: "Marty"},

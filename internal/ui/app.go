@@ -88,6 +88,8 @@ type App struct {
 	searchBuf   string
 	searchText  string
 	helpFrom    int
+	fromAddr    string
+	toAddr      string
 	allMsgs     []jam.Header
 	searchTitle string
 	release     func() func()
@@ -740,6 +742,7 @@ func (a *App) listSubject(h jam.Header) string {
 func (a *App) loadBody() {
 	a.body = nil
 	a.bodyTop = 0
+	a.fromAddr, a.toAddr = "", ""
 	if a.sel < 0 || a.sel >= len(a.msgs) || a.base == nil {
 		return
 	}
@@ -755,8 +758,57 @@ func (a *App) loadBody() {
 		a.markSeen(h)
 		return
 	}
+	if a.kind() == jam.AreaNetmail {
+		a.fromAddr, a.toAddr = netAddrs(h, raw)
+	}
 	a.body = bodyLines(raw, ansiWidth)
 	a.markSeen(h)
+}
+
+func withAddr(name, addr string) string {
+	if addr == "" {
+		return name
+	}
+	return name + " (" + addr + ")"
+}
+
+// netAddrs is the netmail origin and destination. JAM keeps them in the
+// header; older netmail only has the INTL, FMPT and TOPT kludges.
+func netAddrs(h jam.Header, raw []byte) (string, string) {
+	from, to := h.Origin, h.Dest
+	if from != "" && to != "" {
+		return from, to
+	}
+	var intlFrom, intlTo, fmpt, topt string
+	for _, ln := range strings.FieldsFunc(string(raw), func(r rune) bool { return r == '\r' || r == '\n' || r == 0x8D }) {
+		f := strings.Fields(strings.TrimPrefix(ln, "\x01"))
+		if !strings.HasPrefix(ln, "\x01") || len(f) < 2 {
+			continue
+		}
+		switch strings.ToUpper(strings.TrimSuffix(f[0], ":")) {
+		case "INTL":
+			if len(f) >= 3 {
+				intlTo, intlFrom = f[1], f[2]
+			}
+		case "FMPT":
+			fmpt = f[1]
+		case "TOPT":
+			topt = f[1]
+		}
+	}
+	point := func(addr, pt string) string {
+		if addr != "" && pt != "" && pt != "0" && !strings.Contains(addr, ".") {
+			return addr + "." + pt
+		}
+		return addr
+	}
+	if from == "" {
+		from = point(intlFrom, fmpt)
+	}
+	if to == "" {
+		to = point(intlTo, topt)
+	}
+	return from, to
 }
 
 func (a *App) paintAll() {
@@ -814,8 +866,8 @@ func (a *App) paintRead() {
 	if !h.When.IsZero() {
 		when = h.When.Format("02 Jan 06 15:04")
 	}
-	a.scr.content(2, attrNorm, fieldLine("From", h.From, when))
-	a.scr.content(3, attrNorm, fieldLine("To", h.To, a.kindLabel(h)))
+	a.scr.content(2, attrNorm, fieldLine("From", withAddr(h.From, a.fromAddr), when))
+	a.scr.content(3, attrNorm, fieldLine("To", withAddr(h.To, a.toAddr), a.kindLabel(h)))
 	a.scr.content(4, attrNorm, fieldLine("Subj", a.subject(h), ""))
 	names := a.attachNames(h)
 	if len(names) == 0 {
