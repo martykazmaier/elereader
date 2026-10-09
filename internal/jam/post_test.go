@@ -7,6 +7,38 @@ import (
 	"testing"
 )
 
+func TestOpenCreatesMissingBase(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new", "fsxnet")
+	b, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	if !b.writable || b.baseMsg != 1 {
+		t.Fatalf("writable %v base %d", b.writable, b.baseMsg)
+	}
+	hdr, err := os.ReadFile(path + ".jhr")
+	if err != nil || len(hdr) != hdrInfo {
+		t.Fatalf("jhr %d bytes, %v", len(hdr), err)
+	}
+	if binary.LittleEndian.Uint32(hdr[16:]) != 0xFFFFFFFF {
+		t.Fatal("password crc")
+	}
+	for _, ext := range []string{".jlr", ".jdt", ".jdx"} {
+		if st, err := os.Stat(path + ext); err != nil || st.Size() != 0 {
+			t.Fatalf("%s: %v", ext, err)
+		}
+	}
+	msgs, err := b.List()
+	if err != nil || len(msgs) != 0 {
+		t.Fatalf("list %d %v", len(msgs), err)
+	}
+	n, err := b.Post(Outgoing{From: "Martin", To: "All", Subject: "First", Text: []byte("Hi\r"), Kind: AreaEcho})
+	if err != nil || n != 1 {
+		t.Fatalf("post %d %v", n, err)
+	}
+}
+
 func TestPostReplyAndFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "general")

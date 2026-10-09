@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -140,6 +141,11 @@ type Base struct {
 // while EleBBS keeps the area open.
 func Open(path string) (*Base, error) {
 	jhr, jhrW, err := openShared(path, ".JHR", ".jhr")
+	if os.IsNotExist(err) {
+		if err = Create(path); err == nil {
+			jhr, jhrW, err = openShared(path, ".JHR", ".jhr")
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path+".JHR", err)
 	}
@@ -170,6 +176,40 @@ func Open(path string) (*Base, error) {
 		b.baseMsg = n
 	}
 	return b, nil
+}
+
+// Create makes an empty base the way EleBBS CreateMsgBase does: the
+// directory, a 1024-byte .jhr header, and empty .jlr, .jdt and .jdx files.
+// Files that already exist are left alone.
+func Create(path string) error {
+	if dir := filepath.Dir(path); dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+	hdr := make([]byte, hdrInfo)
+	binary.LittleEndian.PutUint32(hdr[0:], sigJAM)
+	binary.LittleEndian.PutUint32(hdr[4:], uint32(time.Now().Unix()))
+	binary.LittleEndian.PutUint32(hdr[16:], 0xFFFFFFFF)
+	binary.LittleEndian.PutUint32(hdr[20:], 1)
+	files := []struct {
+		upper, lower string
+		data         []byte
+	}{{".JHR", ".jhr", hdr}, {".JLR", ".jlr", nil}, {".JDT", ".jdt", nil}, {".JDX", ".jdx", nil}}
+	for _, f := range files {
+		if exists(path+f.upper) || exists(path+f.lower) {
+			continue
+		}
+		if err := os.WriteFile(path+f.lower, f.data, 0644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func exists(name string) bool {
+	_, err := os.Stat(name)
+	return err == nil
 }
 
 func openShared(path, a, c string) (*os.File, bool, error) {
