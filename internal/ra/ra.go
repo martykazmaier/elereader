@@ -245,9 +245,30 @@ func readConfig(sysDir string) bbsConfig {
 			}
 			cfg.addrs = append(cfg.addrs, formatAddr(b[off:off+cfgAddrLen]))
 		}
-		return cfg
+		break
 	}
+	cfg.addrs = append(cfg.addrs, readAkas(sysDir, len(cfg.addrs))...)
 	return cfg
+}
+
+// readAkas returns AKAS.BBS padded so AKA 10 is its first record. EleBBS
+// takes AKAs 0-9 from CONFIG.RA and the rest from AKAS.BBS.
+func readAkas(sysDir string, have int) []string {
+	for _, name := range []string{"AKAS.BBS", "akas.bbs"} {
+		b, err := os.ReadFile(filepath.Join(sysDir, name))
+		if err != nil {
+			continue
+		}
+		var out []string
+		for i := have; i < cfgAddrCount; i++ {
+			out = append(out, "")
+		}
+		for off := 0; off+cfgAddrLen <= len(b); off += cfgAddrLen {
+			out = append(out, formatAddr(b[off:off+cfgAddrLen]))
+		}
+		return out
+	}
+	return nil
 }
 
 func pascalAt(b []byte, off, n int) string {
