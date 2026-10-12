@@ -415,7 +415,7 @@ func (a *App) sendReply() {
 		From:     a.fromName(),
 		To:       strings.TrimSpace(a.replyTo),
 		Subject:  subject,
-		Text:     normalizeNewlines(body),
+		Text:     postText(body, kind),
 		Kind:     kind,
 		Private:  replyPrivate(kind, a.replyTo),
 		ReplyTo:  replyNum,
@@ -847,6 +847,9 @@ func quoteLines(lines []string) []string {
 	var out []string
 	for _, ln := range lines {
 		plain := strings.TrimRight(string(stripSGR([]byte(ln))), " ")
+		if isFooter(plain) {
+			break
+		}
 		if strings.TrimSpace(plain) == "" {
 			if len(out) > 0 && out[len(out)-1] != "" {
 				out = append(out, "")
@@ -868,6 +871,37 @@ func normalizeNewlines(b []byte) []byte {
 	s := strings.ReplaceAll(string(b), "\r\n", "\n")
 	s = strings.ReplaceAll(s, "\n", "\r")
 	return []byte(s)
+}
+
+// postText is the saved editor text for the JAM base. FastEcho writes the
+// tearline and origin on echo and netmail, so those lines are dropped.
+func postText(b []byte, kind jam.AreaKind) []byte {
+	b = normalizeNewlines(b)
+	if kind != jam.AreaEcho && kind != jam.AreaNetmail {
+		return b
+	}
+	var out []string
+	for _, ln := range strings.Split(string(b), "\r") {
+		if isFooter(ln) {
+			break
+		}
+		out = append(out, ln)
+	}
+	for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
+		out = out[:len(out)-1]
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return []byte(strings.Join(out, "\r") + "\r")
+}
+
+func isFooter(s string) bool {
+	if strings.HasPrefix(s, " * Origin:") {
+		return true
+	}
+	t := strings.TrimLeft(s, " \t")
+	return t == "---" || strings.HasPrefix(t, "--- ")
 }
 
 func editorArgs(command, port, baud, mins, timeout string) (string, error) {

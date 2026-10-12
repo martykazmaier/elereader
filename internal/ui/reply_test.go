@@ -112,6 +112,26 @@ func TestQuoteKeepsBreaks(t *testing.T) {
 	}
 }
 
+func TestQuoteStopsAtOrigin(t *testing.T) {
+	got := quoteLines([]string{"Thanks.", "--- Elereader", " * Origin: board (1:2/3)", "after"})
+	if strings.Join(got, "|") != "> Thanks." {
+		t.Fatalf("%q", got)
+	}
+}
+
+func TestPostTextDropsOrigin(t *testing.T) {
+	in := []byte("Hello\r\n---\r\n * Origin: board (1:2/3)\r\n")
+	if got := string(postText(in, jam.AreaEcho)); got != "Hello\r" {
+		t.Fatalf("%q", got)
+	}
+	if got := string(postText(in, jam.AreaNetmail)); got != "Hello\r" {
+		t.Fatalf("%q", got)
+	}
+	if got := string(postText(in, jam.AreaLocal)); got != "Hello\r---\r * Origin: board (1:2/3)\r" {
+		t.Fatalf("local %q", got)
+	}
+}
+
 func TestTZUTC(t *testing.T) {
 	for in, want := range map[string]string{"-0600": "-0600", "+1300": "1300", " 0000 ": "0000", "": ""} {
 		if got := tzutc(in); got != want {
