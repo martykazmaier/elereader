@@ -847,9 +847,6 @@ func quoteLines(lines []string) []string {
 	var out []string
 	for _, ln := range lines {
 		plain := strings.TrimRight(string(stripSGR([]byte(ln))), " ")
-		if isFooter(plain) {
-			break
-		}
 		if strings.TrimSpace(plain) == "" {
 			if len(out) > 0 && out[len(out)-1] != "" {
 				out = append(out, "")
@@ -874,26 +871,25 @@ func normalizeNewlines(b []byte) []byte {
 }
 
 // postText is the saved editor text for the JAM base. FastEcho writes the
-// tearline and origin on echo and netmail, so those lines are dropped.
+// tearline and origin on echo and netmail, so the reply's own trailing ones
+// are dropped. Quoted lines start with "> " and are kept.
 func postText(b []byte, kind jam.AreaKind) []byte {
 	b = normalizeNewlines(b)
 	if kind != jam.AreaEcho && kind != jam.AreaNetmail {
 		return b
 	}
-	var out []string
-	for _, ln := range strings.Split(string(b), "\r") {
-		if isFooter(ln) {
+	lines := strings.Split(string(b), "\r")
+	for len(lines) > 0 {
+		last := lines[len(lines)-1]
+		if strings.TrimSpace(last) != "" && !isFooter(last) {
 			break
 		}
-		out = append(out, ln)
+		lines = lines[:len(lines)-1]
 	}
-	for len(out) > 0 && strings.TrimSpace(out[len(out)-1]) == "" {
-		out = out[:len(out)-1]
-	}
-	if len(out) == 0 {
+	if len(lines) == 0 {
 		return nil
 	}
-	return []byte(strings.Join(out, "\r") + "\r")
+	return []byte(strings.Join(lines, "\r") + "\r")
 }
 
 func isFooter(s string) bool {

@@ -112,22 +112,24 @@ func TestQuoteKeepsBreaks(t *testing.T) {
 	}
 }
 
-func TestQuoteStopsAtOrigin(t *testing.T) {
-	got := quoteLines([]string{"Thanks.", "--- Elereader", " * Origin: board (1:2/3)", "after"})
-	if strings.Join(got, "|") != "> Thanks." {
+func TestQuoteKeepsOrigin(t *testing.T) {
+	got := quoteLines([]string{"Thanks.", "--- Mystic", " * Origin: board (1:2/3)"})
+	want := []string{"> Thanks.", "> --- Mystic", ">  * Origin: board (1:2/3)"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("%q", got)
 	}
 }
 
-func TestPostTextDropsOrigin(t *testing.T) {
-	in := []byte("Hello\r\n---\r\n * Origin: board (1:2/3)\r\n")
-	if got := string(postText(in, jam.AreaEcho)); got != "Hello\r" {
+func TestPostTextDropsReplyOrigin(t *testing.T) {
+	in := []byte("> Thanks.\r\n> --- Mystic\r\n>  * Origin: board (1:2/3)\r\n\r\nHello\r\n---\r\n * Origin: mine (21:2/148)\r\n")
+	want := "> Thanks.\r> --- Mystic\r>  * Origin: board (1:2/3)\r\rHello\r"
+	if got := string(postText(in, jam.AreaEcho)); got != want {
 		t.Fatalf("%q", got)
 	}
-	if got := string(postText(in, jam.AreaNetmail)); got != "Hello\r" {
-		t.Fatalf("%q", got)
+	if got := string(postText(in, jam.AreaNetmail)); got != want {
+		t.Fatalf("netmail %q", got)
 	}
-	if got := string(postText(in, jam.AreaLocal)); got != "Hello\r---\r * Origin: board (1:2/3)\r" {
+	if got := string(postText(in, jam.AreaLocal)); got != string(normalizeNewlines(in)) {
 		t.Fatalf("local %q", got)
 	}
 }
