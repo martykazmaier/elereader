@@ -309,11 +309,6 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 			stopTimer(esc)
 			a.paintAll()
 		case b := <-keys:
-			warned := a.idleWarned
-			a.touch()
-			if warned {
-				a.paintStatus()
-			}
 			if time.Now().Before(a.settle) {
 				continue
 			}
@@ -346,7 +341,16 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 	}
 }
 
+// apply runs key events. Only real keys restart the idle clock; telnet
+// negotiation and keep-alives produce no events.
 func (a *App) apply(evs []Event) bool {
+	if len(evs) > 0 {
+		warned := a.idleWarned
+		a.touch()
+		if warned && a.scr != nil {
+			a.paintStatus()
+		}
+	}
 	for _, ev := range evs {
 		if a.timeUp() {
 			return true

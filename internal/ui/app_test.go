@@ -76,6 +76,19 @@ func TestCheckIdle(t *testing.T) {
 	}
 
 	a.idleOut, a.idleWarned = false, false
+	old := start.Add(-time.Hour)
+	a.lastKey = old
+	nop := []byte{255, 241}
+	evs, _, _ := Parse(nop)
+	a.apply(evs)
+	if !a.lastKey.Equal(old) {
+		t.Fatal("telnet NOP restarted the idle clock")
+	}
+	a.apply([]Event{{Kind: KindDown}})
+	if !a.lastKey.After(old) {
+		t.Fatal("a key did not restart the idle clock")
+	}
+
 	a.user.CommType = door32.CommLocal
 	if a.checkIdle(start.Add(time.Hour)) {
 		t.Fatal("local caller timed out")
