@@ -23,6 +23,8 @@ var (
 	procWriteFile           = kernel32.NewProc("WriteFile")
 	procWaitForSingleObject = kernel32.NewProc("WaitForSingleObject")
 	procSetCommTimeouts     = kernel32.NewProc("SetCommTimeouts")
+	procEscapeCommFunction  = kernel32.NewProc("EscapeCommFunction")
+	procFlushFileBuffers    = kernel32.NewProc("FlushFileBuffers")
 )
 
 const (
@@ -39,8 +41,9 @@ const (
 // filePort is a Win32 HANDLE used with ReadFile and WriteFile.
 // Close does not close the handle. EleBBS still owns a serial port.
 type filePort struct {
-	h    syscall.Handle
-	poll bool
+	h      syscall.Handle
+	poll   bool
+	serial bool
 }
 
 func (p *filePort) Read(b []byte) (int, error) {
@@ -100,6 +103,16 @@ func (p *filePort) Write(b []byte) (int, error) {
 
 func (p *filePort) Close() error { return nil }
 
+// HangUp drops DTR on a serial caller so the modem hangs up. The handle
+// stays open for EleBBS.
+func (p *filePort) HangUp() {
+	if !p.serial {
+		return
+	}
+	procFlushFileBuffers.Call(uintptr(p.h))
+	procEscapeCommFunction.Call(uintptr(p.h), 6) // CLRDTR
+}
+
 // Blocking selects a full wait for a transfer program, or the short
 // timeout the reader uses so it can be stopped between reads.
 func (p *filePort) Blocking(on bool) {
@@ -123,7 +136,7 @@ func openSerial(handle uint32) (Port, func(), error) {
 	to[0] = 0xFFFFFFFF
 	to[2] = 200
 	procSetCommTimeouts.Call(uintptr(h), uintptr(unsafe.Pointer(&to[0])))
-	return &filePort{h: h}, func() {}, nil
+	return &filePort{h: h, serial: true}, func() {}, nil
 }
 
 type stdioPort struct {

@@ -53,6 +53,22 @@ func TestPaintLightbar(t *testing.T) {
 	}
 }
 
+type hangPort struct {
+	bytes.Buffer
+	hung bool
+}
+
+func (p *hangPort) HangUp() { p.hung = true }
+
+func TestHangUp(t *testing.T) {
+	p := &hangPort{}
+	hangUp(p)
+	if !p.hung {
+		t.Fatal("port was not hung up")
+	}
+	hangUp(&bytes.Buffer{})
+}
+
 func TestCheckIdle(t *testing.T) {
 	var buf bytes.Buffer
 	a := &App{

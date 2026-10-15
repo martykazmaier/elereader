@@ -106,6 +106,14 @@ type App struct {
 // again after these delays, and protocol leftovers are dropped until the first.
 var redrawAfter = []time.Duration{time.Second, 3 * time.Second}
 
+// hangUp disconnects the caller, as EleBBS HangUp does on an idle timeout.
+// Ports that cannot hang up are left alone.
+func hangUp(p io.ReadWriter) {
+	if h, ok := p.(interface{ HangUp() }); ok {
+		h.HangUp()
+	}
+}
+
 // setBlocking asks the caller port to wait inside a transfer program.
 // Ports that do not support it keep their normal reads.
 func setBlocking(p io.ReadWriter, on bool) {
@@ -205,12 +213,18 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 			a.base.Close()
 		}
 		out := "\x1b[0m\x1b[?7h\x1b[?25h\x1b[2J\x1b[H"
+		drop := false
 		if a.idleOut {
 			out = "\x1b[0m\x1b[?7h\x1b[?25h\x1b[2J\x1b[12;1HUser Inactivity Timeout, Disconnecting\r\n"
+			drop = true
 		} else if a.quit && a.timeUp() {
 			out = "\x1b[0m\x1b[?7h\x1b[?25h\x1b[2J\x1b[12;1HTime is up.\r\n"
+			drop = true
 		}
 		_, _ = p.Write([]byte(out))
+		if drop {
+			hangUp(p)
+		}
 	}()
 
 	if len(areas) == 0 {

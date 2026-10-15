@@ -22,6 +22,7 @@ var (
 	procSend        = ws2.NewProc("send")
 	procIoctlsocket = ws2.NewProc("ioctlsocket")
 	procSetSockOpt  = ws2.NewProc("setsockopt")
+	procShutdown    = ws2.NewProc("shutdown")
 )
 
 // WSADATA as laid out by the 32-bit Windows headers.
@@ -107,6 +108,13 @@ func (p *sockPort) Write(b []byte) (int, error) {
 
 // Close leaves the SOCKET open. EleBBS still has the caller on this handle.
 func (p *sockPort) Close() error { return nil }
+
+// HangUp drops the caller with shutdown(SD_BOTH). The handle stays open for
+// EleBBS, which then sees the connection is gone and logs the caller off.
+func (p *sockPort) HangUp() {
+	p.Blocking(true)
+	procShutdown.Call(uintptr(p.s), 2)
+}
 
 // deadErrno reports a socket that will not carry the caller again.
 // Would-block and a cleared last-error are not dead: the door stays up

@@ -44,6 +44,17 @@ func (p *fdPort) Read(b []byte) (int, error) {
 func (p *fdPort) Write(b []byte) (int, error) { return p.f.Write(b) }
 func (p *fdPort) Close() error                { return nil }
 
+// HangUp drops the caller: shutdown for a socket, DTR low for a serial tty.
+// The descriptor stays open for the BBS.
+func (p *fdPort) HangUp() {
+	_ = syscall.SetNonblock(p.fd, false)
+	if err := syscall.Shutdown(p.fd, syscall.SHUT_RDWR); err == nil {
+		return
+	}
+	dtr := uint32(syscall.TIOCM_DTR)
+	_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, uintptr(p.fd), syscall.TIOCMBIC, uintptr(unsafe.Pointer(&dtr)))
+}
+
 // Blocking hands a child program an ordinary blocking descriptor, and puts
 // the door's non-blocking mode back afterward.
 func (p *fdPort) Blocking(on bool) {
