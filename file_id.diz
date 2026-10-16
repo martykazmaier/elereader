@@ -1,0 +1,10 @@
+Full-screen EleBBS JAM message reader door
+Browse and search JAM areas with a lightbar
+Read ANSI messages with cursor movement
+Post reply and kill messages
+Supports file attachments and downloads
+Uses EleBBS read marks and lastread pointers
+Requires a DOOR32.SYS drop file
+Includes Windows and Linux builds
+Designed for EleBBS JAM message bases
+See README for installation and usage
