@@ -634,7 +634,7 @@ func (a *App) current() Area {
 }
 
 func (a *App) fromName() string {
-	if a.kind() == jam.AreaEcho && a.user.Alias != "" {
+	if a.current().UseHandle && a.user.Alias != "" {
 		return a.user.Alias
 	}
 	if a.user.RealName != "" {

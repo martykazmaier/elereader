@@ -42,6 +42,8 @@ const (
 	attrJAM     = 0x80
 	// MESSAGES.RA attribute bit 2 is file attaches (1 shl 2).
 	attrAttach = 0x04
+	// EleBBS MESSAGES.RA attribute bit 5 forces the caller's handle as From.
+	attrUseHandle = 0x20
 
 	// Pascal paths and the address list in CONFIG.RA.
 	cfgAttachOff  = 873
@@ -103,6 +105,7 @@ func Current(nodeDir string) (ui.Area, error) {
 			Path:        path,
 			Kind:        areaKind(rec.typ),
 			Origin:      addressAt(cfg.addrs, rec.aka),
+			UseHandle:   rec.attr&attrUseHandle != 0,
 			Editor:      cfg.editor,
 			IdleSecs:    idle,
 			Attach:      joinBase(sysDir, cfg.attach),

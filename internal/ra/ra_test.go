@@ -59,6 +59,7 @@ func TestCurrentArea(t *testing.T) {
 	putArea(msgs[0:], 1, "General", `msg\general`)
 	putArea(msgs[msgRecBytes:], 2, "EleBBS", `C:\bbs\msg\elebbs`)
 	msgs[msgRecBytes+msgTypeOff] = 1
+	msgs[msgRecBytes+msgAttrOff] |= attrUseHandle
 	binary.LittleEndian.PutUint16(msgs[msgRecBytes+msgSysopSecOff:], 100)
 	msgs[msgRecBytes+msgSysopFlagsOff] = 0x01
 	if err := os.WriteFile(filepath.Join(sys, "MESSAGES.RA"), msgs, 0644); err != nil {
@@ -84,6 +85,9 @@ func TestCurrentArea(t *testing.T) {
 	}
 	if area.Kind != jam.AreaNetmail || area.Origin != "1:2/3" {
 		t.Fatalf("kind %v origin %q", area.Kind, area.Origin)
+	}
+	if !area.UseHandle {
+		t.Fatal("MESSAGES.RA handle preference was not loaded")
 	}
 	if area.Editor != `C:\bbs\editor.exe %1` || area.Attach != `C:\bbs\attach` || area.Node != node || !area.AllowAttach {
 		t.Fatalf("editor %q attach %q node %q allow %v", area.Editor, area.Attach, area.Node, area.AllowAttach)

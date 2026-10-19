@@ -36,6 +36,7 @@ type Area struct {
 	Path        string
 	Kind        jam.AreaKind
 	Origin      string
+	UseHandle   bool
 	Editor      string
 	IdleSecs    int
 	Attach      string

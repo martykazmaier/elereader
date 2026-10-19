@@ -48,6 +48,24 @@ func TestReplyDefaults(t *testing.T) {
 	}
 }
 
+func TestFromNameUsesAreaHandleSetting(t *testing.T) {
+	a := &App{
+		user:  door32.Drop{RealName: "Martin", Alias: "Marty"},
+		areas: []Area{{Kind: jam.AreaEcho}},
+	}
+	if got := a.fromName(); got != "Martin" {
+		t.Fatalf("echo area default From %q, want real name", got)
+	}
+	a.areas[0].UseHandle = true
+	if got := a.fromName(); got != "Marty" {
+		t.Fatalf("handle area From %q, want alias", got)
+	}
+	a.user.Alias = ""
+	if got := a.fromName(); got != "Martin" {
+		t.Fatalf("missing handle fallback From %q, want real name", got)
+	}
+}
+
 func TestEditorCommand(t *testing.T) {
 	got, err := editorArgs(`c:\bbs\editor.exe`, "1", "38400", "45", "60")
 	if err != nil || got != `c:\bbs\editor.exe 1 38400 45 60` {
