@@ -195,6 +195,29 @@ func TestPageKeys(t *testing.T) {
 	}
 }
 
+func TestEnterAtEndAdvancesMessage(t *testing.T) {
+	var buf bytes.Buffer
+	a := &App{
+		scr:   &Screen{w: &buf},
+		areas: []Area{{Name: "General"}},
+		mode:  modeRead,
+		msgs:  []jam.Header{{Number: 1}, {Number: 2}},
+		body:  make([]string, bodyRows+4),
+	}
+	a.on(Event{Kind: KindEnter})
+	if a.sel != 0 || a.bodyTop != 4 {
+		t.Fatalf("before end: sel %d bodyTop %d", a.sel, a.bodyTop)
+	}
+	a.on(Event{Kind: KindEnter})
+	if a.sel != 1 {
+		t.Fatalf("at end: sel %d, want 1", a.sel)
+	}
+	a.on(Event{Kind: KindEnter})
+	if a.sel != 1 {
+		t.Fatalf("after last message: sel %d, want 1", a.sel)
+	}
+}
+
 func TestNetAddrs(t *testing.T) {
 	from, to := netAddrs(jam.Header{Origin: "21:1/101", Dest: "21:2/148"}, nil)
 	if from != "21:1/101" || to != "21:2/148" {

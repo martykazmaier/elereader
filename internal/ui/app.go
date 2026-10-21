@@ -459,8 +459,18 @@ func (a *App) onRead(ev Event) bool {
 		a.scrollBody(1)
 	case KindPgUp:
 		a.scrollBody(-bodyRows)
-	case KindPgDn, KindEnter:
+	case KindPgDn:
 		a.scrollBody(bodyRows)
+	case KindEnter:
+		maxTop := len(a.body) - bodyRows
+		if maxTop < 0 {
+			maxTop = 0
+		}
+		if a.bodyTop >= maxTop {
+			a.stepRead(1)
+		} else {
+			a.scrollBody(bodyRows)
+		}
 	case KindHome:
 		a.bodyTop = 0
 		a.paintBody()
