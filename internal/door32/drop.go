@@ -115,9 +115,15 @@ func ParseReader(path string, r io.Reader) (Drop, error) {
 	if comm < CommLocal || comm > CommTelnet {
 		return Drop{}, fmt.Errorf("%s: comm type %d is not 0, 1, or 2", path, comm)
 	}
-	handle64, err := strconv.ParseUint(lines[1], 10, 32)
+	handle64, err := strconv.Atoi(lines[1])
 	if err != nil {
 		return Drop{}, fmt.Errorf("%s: line 2 (socket handle): %w", path, err)
+	}
+	var handle uint32
+	if handle64 >= 0 {
+		handle = uint32(handle64)
+	} else {
+		handle = 0
 	}
 	baud, err := num(2, "baud")
 	if err != nil {
@@ -145,7 +151,7 @@ func ParseReader(path string, r io.Reader) (Drop, error) {
 	}
 	return Drop{
 		CommType:   comm,
-		Handle:     uint32(handle64),
+		Handle:     handle,
 		Baud:       baud,
 		BBSID:      lines[3],
 		UserNumber: userNum,

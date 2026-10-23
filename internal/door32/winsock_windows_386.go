@@ -4,7 +4,10 @@ package door32
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -16,13 +19,14 @@ import (
 // and must not be passed to closesocket.
 
 var (
-	ws2             = syscall.NewLazyDLL("ws2_32.dll")
-	procWSAStartup  = ws2.NewProc("WSAStartup")
-	procRecv        = ws2.NewProc("recv")
-	procSend        = ws2.NewProc("send")
-	procIoctlsocket = ws2.NewProc("ioctlsocket")
-	procSetSockOpt  = ws2.NewProc("setsockopt")
-	procShutdown    = ws2.NewProc("shutdown")
+	ws2                = syscall.NewLazyDLL("ws2_32.dll")
+	procWSAStartup     = ws2.NewProc("WSAStartup")
+	procRecv           = ws2.NewProc("recv")
+	procSend           = ws2.NewProc("send")
+	procWSACloseSocket = ws2.NewProc("closesocket")
+	procIoctlsocket    = ws2.NewProc("ioctlsocket")
+	procSetSockOpt     = ws2.NewProc("setsockopt")
+	procShutdown       = ws2.NewProc("shutdown")
 )
 
 // WSADATA as laid out by the 32-bit Windows headers.
@@ -52,6 +56,11 @@ func ensureWinsock() error {
 
 type sockPort struct {
 	s uint32
+}
+
+type parentProcess struct {
+	pid  uint32
+	name string
 }
 
 func (p *sockPort) Read(b []byte) (int, error) {
@@ -139,9 +148,85 @@ func openTelnet(handle uint32) (Port, func(), error) {
 	if err := ensureWinsock(); err != nil {
 		return nil, func() {}, err
 	}
-	p := &sockPort{s: handle}
+	socket := syscall.Handle(handle)
+	if !socketConnected(socket) {
+		duplicate, parents, ok := adoptSocket(socket)
+		if !ok {
+			names := make([]string, 0, len(parents))
+			for _, parent := range parents {
+				names = append(names, fmt.Sprintf("%s (pid %d)", parent.name, parent.pid))
+			}
+			return nil, func() {}, fmt.Errorf("DOOR32 socket %d is not valid in Elereader and could not be duplicated from a parent process (checked: %s)", handle, strings.Join(names, ", "))
+		}
+		socket = duplicate
+	}
+	p := &sockPort{s: uint32(socket)}
 	p.Blocking(false)
 	return p, func() {}, nil
+}
+
+func socketConnected(handle syscall.Handle) bool {
+	var socketType int32
+	length := int32(4)
+	if err := syscall.Getsockopt(handle, 0xffff, 0x1008, (*byte)(unsafe.Pointer(&socketType)), &length); err != nil {
+		return false
+	}
+	_, err := syscall.Getpeername(handle)
+	return err == nil || err == syscall.Errno(10057)
+}
+
+func adoptSocket(handle syscall.Handle) (syscall.Handle, []parentProcess, bool) {
+	const processDupHandle = 0x0040
+	self, err := syscall.GetCurrentProcess()
+	if err != nil {
+		return 0, nil, false
+	}
+	parents := processAncestors(6)
+	for _, parent := range parents {
+		process, err := syscall.OpenProcess(processDupHandle, false, parent.pid)
+		if err != nil {
+			continue
+		}
+		var duplicate syscall.Handle
+		err = syscall.DuplicateHandle(process, handle, self, &duplicate, 0, false, 2)
+		_ = syscall.CloseHandle(process)
+		if err == nil {
+			if socketConnected(duplicate) {
+				return duplicate, parents, true
+			}
+			procWSACloseSocket.Call(uintptr(duplicate))
+		}
+	}
+	return 0, parents, false
+}
+
+func processAncestors(depth int) []parentProcess {
+	snapshot, err := syscall.CreateToolhelp32Snapshot(0x00000002, 0)
+	if err != nil {
+		return nil
+	}
+	defer syscall.CloseHandle(snapshot)
+	parentIDs := make(map[uint32]uint32)
+	names := make(map[uint32]string)
+	var entry syscall.ProcessEntry32
+	entry.Size = uint32(unsafe.Sizeof(entry))
+	for err := syscall.Process32First(snapshot, &entry); err == nil; err = syscall.Process32Next(snapshot, &entry) {
+		parentIDs[entry.ProcessID] = entry.ParentProcessID
+		names[entry.ProcessID] = syscall.UTF16ToString(entry.ExeFile[:])
+	}
+	var result []parentProcess
+	seen := make(map[uint32]bool)
+	pid := uint32(os.Getpid())
+	for len(result) < depth {
+		parent, ok := parentIDs[pid]
+		if !ok || parent == 0 || seen[parent] {
+			break
+		}
+		seen[parent] = true
+		result = append(result, parentProcess{pid: parent, name: names[parent]})
+		pid = parent
+	}
+	return result
 }
 
 // Blocking switches the caller socket between a normal blocking socket

@@ -126,8 +126,15 @@ func runInherited(command, dir string, handle uint32) error {
 	if command == "" {
 		return fmt.Errorf("ExternalEdCmd is not set")
 	}
+	var sock syscall.Handle
 	if handle != 0 {
-		prepareHandoff(syscall.Handle(handle))
+		dup, err := dupSocket(syscall.Handle(handle))
+		if err != nil {
+			return err
+		}
+		defer syscall.CloseHandle(dup)
+		sock = dup
+		prepareHandoff(sock)
 	}
 	comspec := os.Getenv("ComSpec")
 	if comspec == "" {
@@ -151,7 +158,19 @@ func runInherited(command, dir string, handle uint32) error {
 	var si syscall.StartupInfo
 	si.Cb = uint32(unsafe.Sizeof(si))
 	si.Flags = 0x00000001
-	si.ShowWindow = 1
+	si.ShowWindow = 0
+	if sock != 0 {
+		si.StdInput = sock
+		si.StdOutput = sock
+		si.StdErr = sock
+	} else {
+		si.StdInput = stdHandle(0xFFFFFFF6)
+		si.StdOutput = stdHandle(0xFFFFFFF5)
+		si.StdErr = stdHandle(0xFFFFFFF4)
+		setInherit(si.StdInput, true)
+		setInherit(si.StdOutput, true)
+		setInherit(si.StdErr, true)
+	}
 	var pi syscall.ProcessInformation
 	inherit := uintptr(0)
 	if handle != 0 {
