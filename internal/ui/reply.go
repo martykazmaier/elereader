@@ -854,9 +854,6 @@ func quoteLines(lines []string) []string {
 			continue
 		}
 		out = append(out, "> "+plain)
-		if len(out) >= 30 {
-			break
-		}
 	}
 	for len(out) > 0 && out[len(out)-1] == "" {
 		out = out[:len(out)-1]

@@ -138,6 +138,22 @@ func TestQuoteKeepsOrigin(t *testing.T) {
 	}
 }
 
+func TestQuoteKeepsLongMessages(t *testing.T) {
+	lines := make([]string, 80)
+	for i := range lines {
+		lines[i] = "line"
+	}
+	lines[len(lines)-1] = "last line"
+
+	got := quoteLines(lines)
+	if len(got) != len(lines) {
+		t.Fatalf("got %d quoted lines, want %d", len(got), len(lines))
+	}
+	if got[len(got)-1] != "> last line" {
+		t.Fatalf("last quoted line %q", got[len(got)-1])
+	}
+}
+
 func TestPostTextDropsReplyOrigin(t *testing.T) {
 	in := []byte("> Thanks.\r\n> --- Mystic\r\n>  * Origin: board (1:2/3)\r\n\r\nHello\r\n---\r\n * Origin: mine (21:2/148)\r\n")
 	want := "> Thanks.\r> --- Mystic\r>  * Origin: board (1:2/3)\r\rHello\r"
