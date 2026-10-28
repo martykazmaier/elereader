@@ -55,7 +55,14 @@ func ensureWinsock() error {
 }
 
 type sockPort struct {
-	s uint32
+	s    uint32
+	dead bool
+}
+
+// linger is the Winsock LINGER layout for setsockopt.
+type linger struct {
+	OnOff  int16
+	Linger int16
 }
 
 type parentProcess struct {
@@ -64,6 +71,9 @@ type parentProcess struct {
 }
 
 func (p *sockPort) Read(b []byte) (int, error) {
+	if p.dead {
+		return 0, io.EOF
+	}
 	if len(b) == 0 {
 		return 0, nil
 	}
@@ -86,6 +96,9 @@ func (p *sockPort) Read(b []byte) (int, error) {
 }
 
 func (p *sockPort) Write(b []byte) (int, error) {
+	if p.dead {
+		return 0, io.EOF
+	}
 	total := 0
 	spins := 0
 	for total < len(b) {
@@ -118,11 +131,21 @@ func (p *sockPort) Write(b []byte) (int, error) {
 // Close leaves the SOCKET open. EleBBS still has the caller on this handle.
 func (p *sockPort) Close() error { return nil }
 
-// HangUp drops the caller with shutdown(SD_BOTH). The handle stays open for
-// EleBBS, which then sees the connection is gone and logs the caller off.
+// HangUp drops the caller. Shutdown alone fails on the sockets EleBBS hands
+// doors (Winsock reports WSAENOTCONN even though send/recv work), so this also
+// does an abortive close (linger 0) to send RST. That is intentional: normal
+// exit never closesocket, but hang-up must, or EleBBS resumes the session.
 func (p *sockPort) HangUp() {
+	if p.dead || p.s == 0 {
+		return
+	}
+	p.dead = true
 	p.Blocking(true)
+	l := linger{OnOff: 1, Linger: 0}
+	procSetSockOpt.Call(uintptr(p.s), 0xffff, 0x0080, uintptr(unsafe.Pointer(&l)), 4)
 	procShutdown.Call(uintptr(p.s), 2)
+	procWSACloseSocket.Call(uintptr(p.s))
+	p.s = 0
 }
 
 // deadErrno reports a socket that will not carry the caller again.

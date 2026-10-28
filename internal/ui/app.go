@@ -224,6 +224,8 @@ func Run(p io.ReadWriter, user door32.Drop, areas []Area, fail string) {
 		}
 		_, _ = p.Write([]byte(out))
 		if drop {
+			// Let the disconnect line reach the caller before the RST.
+			time.Sleep(1500 * time.Millisecond)
 			hangUp(p)
 		}
 	}()
