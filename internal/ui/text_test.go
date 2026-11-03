@@ -46,6 +46,29 @@ func TestBareCRIsANewLine(t *testing.T) {
 	}
 }
 
+func TestBBSColorCodes(t *testing.T) {
+	lines := bodyLines([]byte("@X1EYellow on blue\r|15Bright\r`A14:`F14:Radu\r"), 80)
+	if len(lines) < 3 {
+		t.Fatalf("%q", lines)
+	}
+	if !strings.Contains(lines[0], "33") || !strings.Contains(lines[0], "44") {
+		t.Fatalf("at-X want yellow on blue, got %q", lines[0])
+	}
+	if strings.TrimRight(string(stripSGR([]byte(lines[0]))), " ") != "Yellow on blue" {
+		t.Fatalf("plain %q", lines[0])
+	}
+	if !strings.Contains(lines[1], "1;") {
+		t.Fatalf("pipe %q", lines[1])
+	}
+	if strings.TrimRight(string(stripSGR([]byte(lines[2]))), " ") != "Radu" {
+		t.Fatalf("radu %q", lines[2])
+	}
+	raw := expandBBSColors([]byte("|07ok|xx|@X0Fhi"))
+	if !strings.Contains(string(raw), "ok") || !strings.Contains(string(raw), "|xx") {
+		t.Fatalf("literal pipe %q", raw)
+	}
+}
+
 func TestWrap(t *testing.T) {
 	got := wrapVisible([]byte("abcdefghij"), 4)
 	if len(got) != 3 || got[0] != "abcd" || got[1] != "efgh" || got[2] != "ij" {

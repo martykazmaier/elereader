@@ -44,7 +44,163 @@ func filterMessage(raw []byte) []byte {
 		out = append(out, p...)
 		out = append(out, '\n')
 	}
+	return expandBBSColors(out)
+}
+
+// expandBBSColors turns the usual BBS color codes into ANSI so the canvas
+// can draw them. EleBBS message pipes (|07), Renegade/RA @X0F, Radu `A/`F/`B/`C,
+// and Ctrl-K[ hex attributes are all accepted.
+func expandBBSColors(in []byte) []byte {
+	var out []byte
+	attr := byte(0x07)
+	for i := 0; i < len(in); {
+		if n, ok := takeColor(in[i:], &attr); ok {
+			out = append(out, attrANSI(attr)...)
+			i += n
+			continue
+		}
+		if n, esc, ok := takeRaduCtrl(in[i:]); ok {
+			out = append(out, esc...)
+			i += n
+			continue
+		}
+		out = append(out, in[i])
+		i++
+	}
 	return out
+}
+
+func takeColor(b []byte, attr *byte) (n int, ok bool) {
+	if len(b) >= 4 && b[0] == '@' && (b[1] == 'X' || b[1] == 'x') {
+		if h, ok := parseHexByte(b[2], b[3]); ok {
+			*attr = h
+			return 4, true
+		}
+	}
+	if len(b) >= 3 && b[0] == '|' && isDigit(b[1]) && isDigit(b[2]) {
+		*attr = byte((b[1]-'0')*10 + (b[2] - '0'))
+		return 3, true
+	}
+	if len(b) >= 4 && b[0] == 0x0B && b[1] == '[' {
+		if h, ok := parseHexByte(b[2], b[3]); ok {
+			*attr = h
+			return 4, true
+		}
+	}
+	if len(b) >= 2 && b[0] == '`' {
+		code := byte(unicode.ToUpper(rune(b[1])))
+		end := 2
+		for end < len(b) && b[end] != ':' && b[end] != '`' {
+			end++
+		}
+		if end >= len(b) || b[end] != ':' {
+			return 0, false
+		}
+		param := string(b[2:end])
+		switch code {
+		case 'A':
+			*attr = byte(atoi(param))
+			return end + 1, true
+		case 'F':
+			*attr = (*attr & 0x70) | (byte(atoi(param)) & 0x8F)
+			return end + 1, true
+		case 'B':
+			*attr = (*attr & 0x8F) | (byte(atoi(param)&0x07) << 4)
+			return end + 1, true
+		case 'C':
+			*attr |= 0x80
+			return end + 1, true
+		}
+	}
+	return 0, false
+}
+
+func takeRaduCtrl(b []byte) (n int, esc []byte, ok bool) {
+	if len(b) < 2 || b[0] != '`' {
+		return 0, nil, false
+	}
+	code := byte(unicode.ToUpper(rune(b[1])))
+	end := 2
+	for end < len(b) && b[end] != ':' && b[end] != '`' {
+		end++
+	}
+	if end >= len(b) || b[end] != ':' {
+		return 0, nil, false
+	}
+	param := string(b[2:end])
+	switch code {
+	case 'E':
+		return end + 1, []byte("\x1b[K"), true
+	case 'S':
+		return end + 1, []byte("\x1b[2J\x1b[H"), true
+	case 'U':
+		return end + 1, []byte("\x1b[A"), true
+	case 'X':
+		return end + 1, []byte(fmt.Sprintf("\x1b[%dG", atoi(param))), true
+	case 'Y':
+		return end + 1, []byte(fmt.Sprintf("\x1b[%dH", atoi(param))), true
+	case 'G':
+		x, y := 1, 1
+		if i := strings.IndexByte(param, ','); i >= 0 {
+			x, y = atoi(param[:i]), atoi(param[i+1:])
+		}
+		return end + 1, []byte(fmt.Sprintf("\x1b[%d;%dH", y, x)), true
+	}
+	return 0, nil, false
+}
+
+// dosANSI maps a DOS/BBS palette index to ANSI (EleBBS CvtColor).
+var dosANSI = [8]byte{0, 4, 2, 6, 1, 5, 3, 7}
+
+func attrANSI(attr byte) []byte {
+	fg := attr & 0x0F
+	bg := attr >> 4
+	blink := bg > 7
+	if blink {
+		bg -= 8
+	}
+	st := style{fg: dosANSI[fg&7], bg: dosANSI[bg&7], blink: blink}
+	if fg > 7 {
+		st.fg += 8
+	}
+	return styleANSI(st)
+}
+
+func parseHexByte(hi, lo byte) (byte, bool) {
+	h, ok1 := hexNibble(hi)
+	l, ok2 := hexNibble(lo)
+	if !ok1 || !ok2 {
+		return 0, false
+	}
+	return h<<4 | l, true
+}
+
+func hexNibble(b byte) (byte, bool) {
+	switch {
+	case b >= '0' && b <= '9':
+		return b - '0', true
+	case b >= 'a' && b <= 'f':
+		return b - 'a' + 10, true
+	case b >= 'A' && b <= 'F':
+		return b - 'A' + 10, true
+	}
+	return 0, false
+}
+
+func isDigit(b byte) bool { return b >= '0' && b <= '9' }
+
+func atoi(s string) int {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			continue
+		}
+		n = n*10 + int(s[i]-'0')
+		if n > 255 {
+			n = 255
+		}
+	}
+	return n
 }
 
 func splitRaw(raw []byte) [][]byte {
